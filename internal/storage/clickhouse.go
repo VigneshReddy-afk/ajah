@@ -148,6 +148,54 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 	return nil
 }
 
+// QueryRecent returns the most recent limit rows from the traces table,
+// ordered by timestamp descending.
+func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, error) {
+	rows, err := w.conn.Query(ctx, fmt.Sprintf(`
+		SELECT trace_id, request_id, user_id, session_id, feature_name,
+		       agent_step, provider, model, input_tokens, output_tokens,
+		       cost_usd, latency_ms, status_code, masked_prompt,
+		       was_pii_masked, quality_score, timestamp
+		FROM traces
+		ORDER BY timestamp DESC
+		LIMIT %d`, limit))
+	if err != nil {
+		return nil, fmt.Errorf("query recent traces: %w", err)
+	}
+	defer rows.Close()
+
+	var records []TraceRecord
+	for rows.Next() {
+		var r TraceRecord
+		var (
+			inputTokens  int32
+			outputTokens int32
+			statusCode   int32
+			wasPIIMasked uint8
+		)
+		if err := rows.Scan(
+			&r.TraceID, &r.RequestID, &r.UserID, &r.SessionID, &r.FeatureName,
+			&r.AgentStep, &r.Provider, &r.Model, &inputTokens, &outputTokens,
+			&r.CostUSD, &r.LatencyMs, &statusCode, &r.MaskedPrompt,
+			&wasPIIMasked, &r.QualityScore, &r.Timestamp,
+		); err != nil {
+			return nil, fmt.Errorf("scan trace: %w", err)
+		}
+		r.InputTokens = int(inputTokens)
+		r.OutputTokens = int(outputTokens)
+		r.StatusCode = int(statusCode)
+		r.WasPIIMasked = wasPIIMasked == 1
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate traces: %w", err)
+	}
+	if records == nil {
+		records = []TraceRecord{}
+	}
+	return records, nil
+}
+
 // Close releases the underlying ClickHouse connection.
 func (w *Writer) Close() error {
 	return w.conn.Close()

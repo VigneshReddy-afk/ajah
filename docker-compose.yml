@@ -68,6 +68,14 @@ services:
       retries: 10
     restart: unless-stopped
 
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:3000"
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
 volumes:
   redis_data:
   postgres_data:

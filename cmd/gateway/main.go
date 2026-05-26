@@ -13,6 +13,7 @@ import (
 
 	"github.com/ajah/core/internal/attribution"
 	"github.com/ajah/core/internal/config"
+	"github.com/ajah/core/internal/db"
 	"github.com/ajah/core/internal/events"
 	"github.com/ajah/core/internal/masking"
 	"github.com/ajah/core/internal/proxy"
@@ -74,13 +75,25 @@ func run() error {
 		return fmt.Errorf("create clickhouse table: %w", err)
 	}
 
-	// 5. PII masker ------------------------------------------------------------
+	// 5. PostgreSQL settings store ---------------------------------------------
+	dbStore, err := db.New(cfg.DatabaseURL, logger)
+	if err != nil {
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+	defer func() { _ = dbStore.Close() }()
+
+	if err := dbStore.CreateTables(startCtx); err != nil {
+		return fmt.Errorf("create postgres tables: %w", err)
+	}
+	dbStore.RefreshCache(startCtx)
+
+	// 6. PII masker ------------------------------------------------------------
 	masker := masking.New(logger)
 
-	// 6. Attribution engine ----------------------------------------------------
+	// 7. Attribution engine ----------------------------------------------------
 	engine := attribution.New(rdb, logger)
 
-	// 7. Event emitter ---------------------------------------------------------
+	// 8. Event emitter ---------------------------------------------------------
 	const dailyKeyTTL = 90 * 24 * time.Hour
 
 	bufferSize := cfg.AsyncWorkerCount * 10
@@ -139,6 +152,37 @@ func run() error {
 			} else {
 				logger.Warn("failed to increment traces counter", zap.Error(incErr))
 			}
+
+			// Check cost spike alert for this feature
+			if event.FeatureName != "" {
+				featureCostKey := fmt.Sprintf("cost:feature:%s:daily:%s", event.FeatureName, day)
+				featureCost, costErr := rdb.Get(ctx, featureCostKey).Float64()
+				if costErr == nil {
+					threshold := dbStore.ThresholdFor(event.FeatureName)
+					if featureCost > threshold {
+						firedKey := fmt.Sprintf("alerts:fired:%s:%s", event.FeatureName, day)
+						set, setErr := rdb.SetNX(ctx, firedKey, "1", 25*time.Hour).Result()
+						if setErr == nil && set {
+							alert := alertResponse{
+								Timestamp: time.Now().UTC(),
+								Type:      "cost_spike",
+								Feature:   event.FeatureName,
+								Threshold: threshold,
+								Actual:    featureCost,
+							}
+							if alertJSON, marshalErr := json.Marshal(alert); marshalErr == nil {
+								rdb.LPush(ctx, "alerts:list", string(alertJSON))
+								rdb.LTrim(ctx, "alerts:list", 0, 99)
+								logger.Warn("cost spike alert fired",
+									zap.String("feature", event.FeatureName),
+									zap.Float64("threshold", threshold),
+									zap.Float64("actual", featureCost),
+								)
+							}
+						}
+					}
+				}
+			}
 		}
 
 		return firstErr
@@ -150,16 +194,37 @@ func run() error {
 	defer cancelEmitter()
 	emitter.Start(emitterCtx)
 
-	// 8. Proxy handler ---------------------------------------------------------
+	// Background: refresh threshold cache every 60 s so settings changes
+	// take effect without a restart.
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				dbStore.RefreshCache(context.Background())
+			case <-emitterCtx.Done():
+				return
+			}
+		}
+	}()
+
+	// 9. Proxy handler ---------------------------------------------------------
 	proxyHandler := proxy.New(cfg, emitter, logger)
 
-	// 9. Router ----------------------------------------------------------------
+	// 10. Router ---------------------------------------------------------------
 	r := chi.NewRouter()
+	r.Use(corsMiddleware)
+
 	r.Post("/v1/chat/completions", proxyHandler.ServeHTTP)
 	r.Get("/health", healthHandler)
 	r.Get("/metrics/cost", costMetricsHandler(rdb, logger))
+	r.Get("/metrics/traces", tracesHandler(writer, logger))
+	r.Get("/metrics/alerts", alertsHandler(rdb, logger))
+	r.Get("/settings", getSettingsHandler(dbStore, logger))
+	r.Post("/settings", postSettingsHandler(dbStore, logger))
 
-	// 10. HTTP server ----------------------------------------------------------
+	// 11. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
@@ -190,7 +255,7 @@ func run() error {
 		return nil
 	}
 
-	// 11. Graceful shutdown ----------------------------------------------------
+	// 12. Graceful shutdown ----------------------------------------------------
 	logger.Info("shutting down: draining in-flight requests")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -278,14 +343,22 @@ func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc 
 			return
 		}
 
+		byModel, err := scanCostKeys(ctx, rdb, logger,
+			fmt.Sprintf("cost:model:*:daily:%s", today), "cost:model:", ":daily:")
+		if err != nil {
+			http.Error(w, "failed to read model costs", http.StatusInternalServerError)
+			return
+		}
+
 		totalTraces := readCounter(ctx, rdb, logger, fmt.Sprintf("traces:daily:%s", today))
 		piiMaskedCount := readCounter(ctx, rdb, logger, fmt.Sprintf("pii:masked:daily:%s", today))
 
 		payload := map[string]interface{}{
-			"date":            today,
-			"by_user":         byUser,
-			"by_feature":      byFeature,
-			"total_traces":    totalTraces,
+			"date":             today,
+			"by_user":          byUser,
+			"by_feature":       byFeature,
+			"by_model":         byModel,
+			"total_traces":     totalTraces,
 			"pii_masked_count": piiMaskedCount,
 		}
 
@@ -296,7 +369,6 @@ func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc 
 	}
 }
 
-// readCounter returns the integer value of a Redis key, or 0 if absent or on error.
 func readCounter(ctx context.Context, rdb *redis.Client, logger *zap.Logger, key string) int64 {
 	val, err := rdb.Get(ctx, key).Int64()
 	if err != nil && err != redis.Nil {
@@ -312,7 +384,6 @@ func scanCostKeys(
 	pattern, prefix, suffix string,
 ) (map[string]float64, error) {
 	result := make(map[string]float64)
-
 	iter := rdb.Scan(ctx, 0, pattern, 0).Iterator()
 	for iter.Next(ctx) {
 		key := iter.Val()
