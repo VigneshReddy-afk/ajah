@@ -23,6 +23,7 @@ type RequestEvent struct {
 	OutputTokens int
 	LatencyMs    int64
 	StatusCode   int
+	Prompt       string
 	Timestamp    time.Time
 }
 

@@ -155,6 +155,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		OutputTokens: outputTokens,
 		LatencyMs:    latencyMs,
 		StatusCode:   resp.StatusCode,
+		Prompt:       extractPrompt(body),
 		Timestamp:    start,
 	}
 
@@ -219,6 +220,24 @@ func extractModel(body []byte) string {
 		return ""
 	}
 	return req.Model
+}
+
+func extractPrompt(body []byte) string {
+	var req struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || len(req.Messages) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		if m.Content != "" {
+			parts = append(parts, m.Content)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func newRequestID() string {

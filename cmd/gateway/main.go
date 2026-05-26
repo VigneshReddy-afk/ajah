@@ -14,7 +14,9 @@ import (
 	"github.com/ajah/core/internal/attribution"
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
+	"github.com/ajah/core/internal/masking"
 	"github.com/ajah/core/internal/proxy"
+	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -44,7 +46,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("build logger: %w", err)
 	}
-	// Flush buffered log entries last, after every other resource is closed.
 	defer func() { _ = logger.Sync() }()
 
 	logger.Info("starting ajah gateway",
@@ -58,34 +59,107 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("connect redis: %w", err)
 	}
-	// Closed after emitter drains so in-flight events can still reach Redis.
 	defer func() { _ = rdb.Close() }()
 
-	// 4. Attribution engine ----------------------------------------------------
+	// 4. ClickHouse writer -----------------------------------------------------
+	writer, err := storage.New(cfg.ClickHouseURL, logger)
+	if err != nil {
+		return fmt.Errorf("connect clickhouse: %w", err)
+	}
+	defer func() { _ = writer.Close() }()
+
+	startCtx, startCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer startCancel()
+	if err := writer.CreateTable(startCtx); err != nil {
+		return fmt.Errorf("create clickhouse table: %w", err)
+	}
+
+	// 5. PII masker ------------------------------------------------------------
+	masker := masking.New(logger)
+
+	// 6. Attribution engine ----------------------------------------------------
 	engine := attribution.New(rdb, logger)
 
-	// 5. Event emitter ---------------------------------------------------------
+	// 7. Event emitter ---------------------------------------------------------
+	const dailyKeyTTL = 90 * 24 * time.Hour
+
 	bufferSize := cfg.AsyncWorkerCount * 10
 	processFn := func(ctx context.Context, event events.RequestEvent) error {
-		_, err := engine.Process(ctx, event)
-		return err
+		var firstErr error
+
+		// Step 1: mask prompt
+		maskResult := masker.Mask(event.Prompt)
+
+		if maskResult.WasMasked {
+			day := event.Timestamp.UTC().Format("2006-01-02")
+			piiKey := fmt.Sprintf("pii:masked:daily:%s", day)
+			if incErr := rdb.Incr(ctx, piiKey).Err(); incErr == nil {
+				rdb.Expire(ctx, piiKey, dailyKeyTTL)
+			} else {
+				logger.Warn("failed to increment pii masked counter", zap.Error(incErr))
+			}
+		}
+
+		// Step 2: attribution (always returns a CostRecord even on error)
+		costRecord, attrErr := engine.Process(ctx, event)
+		if attrErr != nil {
+			firstErr = attrErr
+		}
+
+		// Step 3: write trace to ClickHouse
+		record := storage.TraceRecord{
+			TraceID:      event.RequestID,
+			RequestID:    event.RequestID,
+			UserID:       event.UserID,
+			SessionID:    event.SessionID,
+			FeatureName:  event.FeatureName,
+			AgentStep:    event.AgentStep,
+			Provider:     event.Provider,
+			Model:        event.Model,
+			InputTokens:  event.InputTokens,
+			OutputTokens: event.OutputTokens,
+			CostUSD:      costRecord.CostUSD,
+			LatencyMs:    event.LatencyMs,
+			StatusCode:   event.StatusCode,
+			MaskedPrompt: maskResult.Masked,
+			WasPIIMasked: maskResult.WasMasked,
+			QualityScore: 0,
+			Timestamp:    event.Timestamp,
+		}
+		writeErr := writer.Write(ctx, record)
+		if writeErr != nil {
+			if firstErr == nil {
+				firstErr = writeErr
+			}
+		} else {
+			day := event.Timestamp.UTC().Format("2006-01-02")
+			tracesKey := fmt.Sprintf("traces:daily:%s", day)
+			if incErr := rdb.Incr(ctx, tracesKey).Err(); incErr == nil {
+				rdb.Expire(ctx, tracesKey, dailyKeyTTL)
+			} else {
+				logger.Warn("failed to increment traces counter", zap.Error(incErr))
+			}
+		}
+
+		return firstErr
 	}
+
 	emitter := events.New(bufferSize, cfg.AsyncWorkerCount, logger, processFn)
 
 	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
-	defer cancelEmitter() // safety net for early-return error paths
+	defer cancelEmitter()
 	emitter.Start(emitterCtx)
 
-	// 6. Proxy handler ---------------------------------------------------------
+	// 8. Proxy handler ---------------------------------------------------------
 	proxyHandler := proxy.New(cfg, emitter, logger)
 
-	// 7. Router ----------------------------------------------------------------
+	// 9. Router ----------------------------------------------------------------
 	r := chi.NewRouter()
 	r.Post("/v1/chat/completions", proxyHandler.ServeHTTP)
 	r.Get("/health", healthHandler)
 	r.Get("/metrics/cost", costMetricsHandler(rdb, logger))
 
-	// 8. HTTP server -----------------------------------------------------------
+	// 10. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
@@ -103,7 +177,6 @@ func run() error {
 		close(serverErr)
 	}()
 
-	// Wait for OS signal or a fatal server error.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -117,7 +190,7 @@ func run() error {
 		return nil
 	}
 
-	// 9. Graceful shutdown -----------------------------------------------------
+	// 11. Graceful shutdown ----------------------------------------------------
 	logger.Info("shutting down: draining in-flight requests")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -127,8 +200,6 @@ func run() error {
 		logger.Error("HTTP server shutdown error", zap.Error(err))
 	}
 
-	// Cancel emitter workers only after the HTTP server stops accepting new
-	// requests so that every request's event is queued before we drain.
 	cancelEmitter()
 	emitter.Stop()
 
@@ -136,8 +207,6 @@ func run() error {
 	return nil
 }
 
-// buildLogger returns a development logger for "debug" and a production logger
-// (JSON, sampling) for everything else.
 func buildLogger(level string) (*zap.Logger, error) {
 	if level == "debug" {
 		return zap.NewDevelopment()
@@ -145,7 +214,6 @@ func buildLogger(level string) (*zap.Logger, error) {
 	return zap.NewProduction()
 }
 
-// connectRedis dials Redis with up to 5 attempts spaced 2 seconds apart.
 func connectRedis(cfg *config.Config, logger *zap.Logger) (*redis.Client, error) {
 	opts, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
@@ -186,14 +254,11 @@ func connectRedis(cfg *config.Config, logger *zap.Logger) (*redis.Client, error)
 	return nil, fmt.Errorf("redis unreachable after %d attempts", maxAttempts)
 }
 
-// healthHandler returns a static liveness response.
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"status":"ok","version":"` + version + `"}`))
 }
 
-// costMetricsHandler returns today's running cost totals from Redis, grouped
-// by user and by feature.
 func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -213,10 +278,15 @@ func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc 
 			return
 		}
 
+		totalTraces := readCounter(ctx, rdb, logger, fmt.Sprintf("traces:daily:%s", today))
+		piiMaskedCount := readCounter(ctx, rdb, logger, fmt.Sprintf("pii:masked:daily:%s", today))
+
 		payload := map[string]interface{}{
-			"date":       today,
-			"by_user":    byUser,
-			"by_feature": byFeature,
+			"date":            today,
+			"by_user":         byUser,
+			"by_feature":      byFeature,
+			"total_traces":    totalTraces,
+			"pii_masked_count": piiMaskedCount,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -226,9 +296,15 @@ func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc 
 	}
 }
 
-// scanCostKeys iterates Redis keys matching pattern and returns a map of
-// entity-name → float64 cost. The entity name is extracted by stripping
-// prefix and everything from suffix onward.
+// readCounter returns the integer value of a Redis key, or 0 if absent or on error.
+func readCounter(ctx context.Context, rdb *redis.Client, logger *zap.Logger, key string) int64 {
+	val, err := rdb.Get(ctx, key).Int64()
+	if err != nil && err != redis.Nil {
+		logger.Warn("failed to read counter", zap.String("key", key), zap.Error(err))
+	}
+	return val
+}
+
 func scanCostKeys(
 	ctx context.Context,
 	rdb *redis.Client,
@@ -254,10 +330,6 @@ func scanCostKeys(
 	return result, nil
 }
 
-// extractSegment pulls the entity name out of a cost key.
-// Example: ("cost:user:alice:daily:2024-01-15", "cost:user:", ":daily:") → "alice"
-// Uses LastIndex so entity names that happen to contain the suffix string still
-// resolve correctly.
 func extractSegment(key, prefix, suffix string) string {
 	s := strings.TrimPrefix(key, prefix)
 	if idx := strings.LastIndex(s, suffix); idx >= 0 {

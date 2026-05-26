@@ -10,6 +10,7 @@ const (
 	defaultPort                   = "8080"
 	defaultRedisURL               = "redis://localhost:6379"
 	defaultDatabaseURL            = "postgres://localhost:5432/observatory"
+	defaultClickHouseURL          = "clickhouse://localhost:9000/default"
 	defaultLogLevel               = "info"
 	defaultMaxRequestBodyBytes    = int64(10 * 1024 * 1024)
 	defaultAsyncWorkerCount       = 10
@@ -21,6 +22,7 @@ type Config struct {
 	Port                   string
 	RedisURL               string
 	DatabaseURL            string
+	ClickHouseURL          string
 	LogLevel               string
 	MaxRequestBodyBytes    int64
 	AsyncWorkerCount       int
@@ -33,6 +35,7 @@ func Load() (*Config, error) {
 		Port:                   envOrDefault("PORT", defaultPort),
 		RedisURL:               envOrDefault("REDIS_URL", defaultRedisURL),
 		DatabaseURL:            envOrDefault("DATABASE_URL", defaultDatabaseURL),
+		ClickHouseURL:          envOrDefault("CLICKHOUSE_URL", defaultClickHouseURL),
 		LogLevel:               envOrDefault("LOG_LEVEL", defaultLogLevel),
 		MaxRequestBodyBytes:    defaultMaxRequestBodyBytes,
 		AsyncWorkerCount:       defaultAsyncWorkerCount,
