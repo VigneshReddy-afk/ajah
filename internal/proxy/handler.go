@@ -48,6 +48,12 @@ func New(cfg *config.Config, em eventSink, logger *zap.Logger) *Handler {
 	}
 }
 
+// SetProviderURL overrides the base URL for a named provider.
+// Intended for integration tests that need to point the handler at a mock server.
+func (h *Handler) SetProviderURL(provider, url string) {
+	h.providerURLs[provider] = url
+}
+
 // ServeHTTP proxies the request to the appropriate LLM provider.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
