@@ -8,7 +8,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379
       DATABASE_URL: postgres://observatory:observatory@postgres:5432/observatory
-      CLICKHOUSE_URL: clickhouse://default:ajahprod@clickhouse:9000/default
+      CLICKHOUSE_URL: ${CLICKHOUSE_URL}
       LOG_LEVEL: debug
       ASYNC_WORKER_COUNT: "5"
     depends_on:
@@ -57,12 +57,12 @@ services:
       - "9001:9000"
     environment:
       CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ajahprod
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DB: default
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --user default --password ajahprod --query 'SELECT 1'"]
+      test: ["CMD-SHELL", "clickhouse-client --user default --password $${CLICKHOUSE_PASSWORD} --query 'SELECT 1'"]
       interval: 5s
       timeout: 3s
       retries: 10
