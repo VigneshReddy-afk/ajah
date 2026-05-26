@@ -300,6 +300,52 @@ func TestHandler_ResponseBodyPassedThroughUnchanged(t *testing.T) {
 	}
 }
 
+func TestHandler_BearerPrefixRoutesOpenAI(t *testing.T) {
+	provider := mockProvider(t, http.StatusOK, llmResponse)
+	defer provider.Close()
+
+	em := newMockEmitter()
+	h := newHandler(t, testConfig(), em)
+	h.providerURLs["openai"] = provider.URL
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp := doPost(t, srv.URL+"/v1/chat/completions", "Bearer sk-test123", `{"model":"gpt-4","messages":[]}`)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	evt := mustEvent(t, em)
+	if evt.Provider != "openai" {
+		t.Errorf("Provider = %q, want openai", evt.Provider)
+	}
+}
+
+func TestHandler_BearerPrefixRoutesAnthropic(t *testing.T) {
+	provider := mockProvider(t, http.StatusOK, llmResponse)
+	defer provider.Close()
+
+	em := newMockEmitter()
+	h := newHandler(t, testConfig(), em)
+	h.providerURLs["anthropic"] = provider.URL
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp := doPost(t, srv.URL+"/v1/chat/completions", "Bearer sk-ant-test123", `{"model":"claude-3","messages":[]}`)
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	evt := mustEvent(t, em)
+	if evt.Provider != "anthropic" {
+		t.Errorf("Provider = %q, want anthropic", evt.Provider)
+	}
+}
+
 func TestHandler_EventTimestampAndLatency(t *testing.T) {
 	provider := mockProvider(t, http.StatusOK, llmResponse)
 	defer provider.Close()

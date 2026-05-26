@@ -173,11 +173,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // detectProvider maps the Authorization header prefix to a provider name and base URL.
+// Both bare keys ("sk-...") and Bearer-prefixed keys ("Bearer sk-...") are accepted.
 func (h *Handler) detectProvider(authHeader string) (provider, url string, err error) {
+	key := strings.TrimPrefix(authHeader, "Bearer ")
 	switch {
-	case strings.HasPrefix(authHeader, "sk-ant-"):
+	case strings.HasPrefix(key, "sk-ant-"):
 		return "anthropic", h.providerURLs["anthropic"], nil
-	case strings.HasPrefix(authHeader, "sk-"):
+	case strings.HasPrefix(key, "sk-"):
 		return "openai", h.providerURLs["openai"], nil
 	default:
 		return "", "", fmt.Errorf(
