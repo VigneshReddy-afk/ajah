@@ -1,0 +1,25 @@
+# Binaries
+/gateway
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Go build cache
+*.out
+coverage.out
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp
