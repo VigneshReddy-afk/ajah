@@ -7,6 +7,7 @@ import (
 
 	"github.com/ajah/core/internal/db"
 	"github.com/ajah/core/internal/storage"
+	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -157,6 +158,126 @@ func getSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 			FeatureSettings: features,
 			ProviderKeys:    keys,
 		})
+	}
+}
+
+// sessionResponse is the JSON shape of a single session in the list endpoint.
+type sessionResponse struct {
+	SessionID   string    `json:"session_id"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	TotalCost   float64   `json:"total_cost"`
+	TotalTokens int64     `json:"total_tokens"`
+	StepCount   int32     `json:"step_count"`
+	AvgQuality  float64   `json:"avg_quality"`
+	Status      string    `json:"status"`
+	FeatureName string    `json:"feature_name"`
+	UserID      string    `json:"user_id"`
+}
+
+// sessionDetailResponse adds the individual traces to a session.
+type sessionDetailResponse struct {
+	sessionResponse
+	Traces []traceResponse `json:"traces"`
+}
+
+// sessionsHandler returns the 50 most recent closed sessions from ClickHouse.
+func sessionsHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		records, err := writer.QueryRecentSessions(ctx, 50)
+		if err != nil {
+			logger.Error("query recent sessions", zap.Error(err))
+			http.Error(w, "failed to query sessions", http.StatusInternalServerError)
+			return
+		}
+
+		resp := make([]sessionResponse, len(records))
+		for i, rec := range records {
+			resp[i] = sessionResponse{
+				SessionID:   rec.SessionID,
+				StartTime:   rec.StartTime,
+				EndTime:     rec.LastSeen,
+				TotalCost:   rec.TotalCost,
+				TotalTokens: rec.TotalTokens,
+				StepCount:   rec.StepCount,
+				AvgQuality:  rec.AvgQuality,
+				Status:      rec.Status,
+				FeatureName: rec.FeatureName,
+				UserID:      rec.UserID,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"sessions": resp})
+	}
+}
+
+// sessionDetailHandler returns a single session with all its traces.
+func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		sessionID := chi.URLParam(r, "sessionID")
+
+		rec, err := writer.QuerySessionByID(ctx, sessionID)
+		if err != nil {
+			logger.Error("query session", zap.String("session_id", sessionID), zap.Error(err))
+			http.Error(w, "failed to query session", http.StatusInternalServerError)
+			return
+		}
+		if rec == nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+
+		traceRecs, err := writer.QueryTracesBySession(ctx, sessionID)
+		if err != nil {
+			logger.Error("query session traces", zap.String("session_id", sessionID), zap.Error(err))
+			http.Error(w, "failed to query session traces", http.StatusInternalServerError)
+			return
+		}
+
+		traces := make([]traceResponse, len(traceRecs))
+		for i, t := range traceRecs {
+			traces[i] = traceResponse{
+				TraceID:      t.TraceID,
+				RequestID:    t.RequestID,
+				UserID:       t.UserID,
+				SessionID:    t.SessionID,
+				FeatureName:  t.FeatureName,
+				AgentStep:    t.AgentStep,
+				Provider:     t.Provider,
+				Model:        t.Model,
+				InputTokens:  t.InputTokens,
+				OutputTokens: t.OutputTokens,
+				CostUSD:      t.CostUSD,
+				LatencyMs:    t.LatencyMs,
+				StatusCode:   t.StatusCode,
+				MaskedPrompt: t.MaskedPrompt,
+				WasPIIMasked: t.WasPIIMasked,
+				QualityScore: t.QualityScore,
+				Timestamp:    t.Timestamp,
+			}
+		}
+
+		detail := sessionDetailResponse{
+			sessionResponse: sessionResponse{
+				SessionID:   rec.SessionID,
+				StartTime:   rec.StartTime,
+				EndTime:     rec.LastSeen,
+				TotalCost:   rec.TotalCost,
+				TotalTokens: rec.TotalTokens,
+				StepCount:   rec.StepCount,
+				AvgQuality:  rec.AvgQuality,
+				Status:      rec.Status,
+				FeatureName: rec.FeatureName,
+				UserID:      rec.UserID,
+			},
+			Traces: traces,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(detail)
 	}
 }
 

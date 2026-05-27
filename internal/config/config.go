@@ -16,6 +16,7 @@ const (
 	defaultMaxRequestBodyBytes    = int64(10 * 1024 * 1024)
 	defaultAsyncWorkerCount       = 10
 	defaultProviderTimeoutSeconds = 30
+	defaultSessionTimeout         = 300
 )
 
 // Config holds all runtime configuration for the ajah gateway.
@@ -29,6 +30,7 @@ type Config struct {
 	MaxRequestBodyBytes    int64
 	AsyncWorkerCount       int
 	ProviderTimeoutSeconds int
+	SessionTimeout         int
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -43,6 +45,7 @@ func Load() (*Config, error) {
 		MaxRequestBodyBytes:    defaultMaxRequestBodyBytes,
 		AsyncWorkerCount:       defaultAsyncWorkerCount,
 		ProviderTimeoutSeconds: defaultProviderTimeoutSeconds,
+		SessionTimeout:         defaultSessionTimeout,
 	}
 
 	if raw := os.Getenv("MAX_REQUEST_BODY_BYTES"); raw != "" {
@@ -67,6 +70,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid PROVIDER_TIMEOUT_SECONDS %q: %w", raw, err)
 		}
 		cfg.ProviderTimeoutSeconds = v
+	}
+
+	if raw := os.Getenv("SESSION_TIMEOUT"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SESSION_TIMEOUT %q: %w", raw, err)
+		}
+		cfg.SessionTimeout = v
 	}
 
 	return cfg, nil

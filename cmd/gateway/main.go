@@ -19,6 +19,7 @@ import (
 	"github.com/ajah/core/internal/events"
 	"github.com/ajah/core/internal/masking"
 	"github.com/ajah/core/internal/proxy"
+	"github.com/ajah/core/internal/sessions"
 	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
@@ -76,6 +77,9 @@ func run() error {
 	if err := writer.CreateTable(startCtx); err != nil {
 		return fmt.Errorf("create clickhouse table: %w", err)
 	}
+	if err := writer.CreateSessionTable(startCtx); err != nil {
+		return fmt.Errorf("create session table: %w", err)
+	}
 
 	// 5. PostgreSQL settings store ---------------------------------------------
 	dbStore, err := db.New(cfg.DatabaseURL, logger)
@@ -98,7 +102,11 @@ func run() error {
 	// 8. Scorer HTTP client (best-effort; never fails the main pipeline) --------
 	scorerClient := &http.Client{Timeout: 10 * time.Second}
 
-	// 9. Event emitter ---------------------------------------------------------
+	// 9. Session accumulator ---------------------------------------------------
+	acc := sessions.New(rdb, writer, logger)
+	acc.SetSessionTimeout(time.Duration(cfg.SessionTimeout) * time.Second)
+
+	// 10. Event emitter --------------------------------------------------------
 	const dailyKeyTTL = 90 * 24 * time.Hour
 
 	bufferSize := cfg.AsyncWorkerCount * 10
@@ -198,6 +206,16 @@ func run() error {
 			}
 		}
 
+		// Step 5: session accumulation (best-effort; never breaks the pipeline)
+		if event.SessionID != "" {
+			if addErr := acc.AddTrace(ctx, event.SessionID, record); addErr != nil {
+				logger.Warn("session trace accumulation failed",
+					zap.String("session_id", event.SessionID),
+					zap.Error(addErr),
+				)
+			}
+		}
+
 		return firstErr
 	}
 
@@ -206,6 +224,7 @@ func run() error {
 	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
 	defer cancelEmitter()
 	emitter.Start(emitterCtx)
+	acc.StartReaper(emitterCtx)
 
 	// Background: refresh threshold cache every 60 s so settings changes
 	// take effect without a restart.
@@ -236,6 +255,8 @@ func run() error {
 	r.Get("/metrics/alerts", alertsHandler(rdb, logger))
 	r.Get("/settings", getSettingsHandler(dbStore, logger))
 	r.Post("/settings", postSettingsHandler(dbStore, logger))
+	r.Get("/sessions", sessionsHandler(writer, logger))
+	r.Get("/sessions/{sessionID}", sessionDetailHandler(writer, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
