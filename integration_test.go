@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,7 +77,16 @@ func TestGatewayIntegration(t *testing.T) {
 
 	engine := attribution.New(rdb, logger)
 
+	var (
+		capturedMu sync.Mutex
+		captured   events.RequestEvent
+		capturedOK bool
+	)
 	processFn := func(ctx context.Context, event events.RequestEvent) error {
+		capturedMu.Lock()
+		captured = event
+		capturedOK = true
+		capturedMu.Unlock()
 		_, err := engine.Process(ctx, event)
 		return err
 	}
@@ -108,6 +118,8 @@ func TestGatewayIntegration(t *testing.T) {
 	req.Header.Set("Authorization", "sk-test123")
 	req.Header.Set("X-User-ID", "user_1")
 	req.Header.Set("X-Feature-Name", "chat")
+	req.Header.Set("X-Agent-Step", "step-1")
+	req.Header.Set("X-Session-ID", "sess-integration-1")
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -143,4 +155,22 @@ func TestGatewayIntegration(t *testing.T) {
 
 	t.Logf("cost:user:user_1  = $%.8f", userCost)
 	t.Logf("cost:feature:chat = $%.8f", featureCost)
+
+	// Verify agent step metadata was forwarded through the event pipeline.
+	capturedMu.Lock()
+	evt := captured
+	ok := capturedOK
+	capturedMu.Unlock()
+
+	if !ok {
+		t.Fatal("no event was captured by processFn")
+	}
+	if evt.StepName != "step-1" {
+		t.Errorf("StepName = %q, want step-1", evt.StepName)
+	}
+	if evt.SessionID != "sess-integration-1" {
+		t.Errorf("SessionID = %q, want sess-integration-1", evt.SessionID)
+	}
+	t.Logf("StepName  = %q", evt.StepName)
+	t.Logf("SessionID = %q", evt.SessionID)
 }

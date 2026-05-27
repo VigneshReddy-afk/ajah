@@ -35,6 +35,9 @@ type traceResponse struct {
 	SessionID    string    `json:"session_id"`
 	FeatureName  string    `json:"feature_name"`
 	AgentStep    string    `json:"agent_step"`
+	ParentStepID string    `json:"parent_step_id"`
+	StepName     string    `json:"step_name"`
+	ToolName     string    `json:"tool_name"`
 	Provider     string    `json:"provider"`
 	Model        string    `json:"model"`
 	InputTokens  int       `json:"input_tokens"`
@@ -68,6 +71,9 @@ func tracesHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc 
 				SessionID:    rec.SessionID,
 				FeatureName:  rec.FeatureName,
 				AgentStep:    rec.AgentStep,
+				ParentStepID: rec.ParentStepID,
+				StepName:     rec.StepName,
+				ToolName:     rec.ToolName,
 				Provider:     rec.Provider,
 				Model:        rec.Model,
 				InputTokens:  rec.InputTokens,
@@ -246,6 +252,9 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 				SessionID:    t.SessionID,
 				FeatureName:  t.FeatureName,
 				AgentStep:    t.AgentStep,
+				ParentStepID: t.ParentStepID,
+				StepName:     t.StepName,
+				ToolName:     t.ToolName,
 				Provider:     t.Provider,
 				Model:        t.Model,
 				InputTokens:  t.InputTokens,

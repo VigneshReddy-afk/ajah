@@ -80,10 +80,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.Header.Get("X-User-ID")
-	sessionID := r.Header.Get("X-Session-ID")
-	featureName := r.Header.Get("X-Feature-Name")
-	agentStep := r.Header.Get("X-Agent-Step")
+	userID       := r.Header.Get("X-User-ID")
+	sessionID    := r.Header.Get("X-Session-ID")
+	featureName  := r.Header.Get("X-Feature-Name")
+	stepName     := r.Header.Get("X-Agent-Step")
+	parentStepID := r.Header.Get("X-Parent-Step-ID")
+	toolName     := r.Header.Get("X-Tool-Name")
 
 	provider, providerURL, err := h.detectProvider(r.Header.Get("Authorization"))
 	if err != nil {
@@ -174,7 +176,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		UserID:       userID,
 		SessionID:    sessionID,
 		FeatureName:  featureName,
-		AgentStep:    agentStep,
+		AgentStep:    stepName, // kept for attribution retry-loop key
+		StepName:     stepName,
+		ParentStepID: parentStepID,
+		ToolName:     toolName,
 		Provider:     provider,
 		Model:        model,
 		InputTokens:  inputTokens,

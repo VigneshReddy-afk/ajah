@@ -16,7 +16,10 @@ type RequestEvent struct {
 	UserID       string
 	SessionID    string
 	FeatureName  string
-	AgentStep    string
+	AgentStep    string // legacy field kept for attribution-engine retry-loop key
+	StepName     string // canonical name for the agent step (from X-Agent-Step)
+	ParentStepID string // from X-Parent-Step-ID; empty for root steps
+	ToolName     string // from X-Tool-Name; set when an agent invokes a tool
 	Provider     string
 	Model        string
 	InputTokens  int

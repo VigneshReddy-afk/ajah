@@ -143,7 +143,8 @@ func (w *Writer) QueryTracesBySession(ctx context.Context, sessionID string) ([]
 		SELECT trace_id, request_id, user_id, session_id, feature_name,
 		       agent_step, provider, model, input_tokens, output_tokens,
 		       cost_usd, latency_ms, status_code, masked_prompt,
-		       was_pii_masked, quality_score, timestamp
+		       was_pii_masked, quality_score, timestamp,
+		       parent_step_id, step_name, tool_name
 		FROM traces
 		WHERE session_id = ?
 		ORDER BY timestamp ASC`, sessionID)
@@ -162,6 +163,7 @@ func (w *Writer) QueryTracesBySession(ctx context.Context, sessionID string) ([]
 			&r.AgentStep, &r.Provider, &r.Model, &inputTokens, &outputTokens,
 			&r.CostUSD, &r.LatencyMs, &statusCode, &r.MaskedPrompt,
 			&wasPIIMasked, &r.QualityScore, &r.Timestamp,
+			&r.ParentStepID, &r.StepName, &r.ToolName,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}

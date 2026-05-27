@@ -19,6 +19,9 @@ type TraceRecord struct {
 	SessionID    string
 	FeatureName  string
 	AgentStep    string
+	ParentStepID string
+	StepName     string
+	ToolName     string
 	Provider     string
 	Model        string
 	InputTokens  int
@@ -56,9 +59,22 @@ CREATE TABLE IF NOT EXISTS traces (
     masked_prompt  String,
     was_pii_masked UInt8,
     quality_score  Float64,
-    timestamp      DateTime
+    timestamp      DateTime,
+    parent_step_id String,
+    step_name      String,
+    tool_name      String
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, user_id, feature_name)
+`
+
+// migrateTableSQL adds the three agent-step metadata columns to existing
+// traces tables that predate this schema version. IF NOT EXISTS is supported
+// since ClickHouse 22.4 and means running this on a fresh table is a no-op.
+const migrateTableSQL = `
+ALTER TABLE traces
+    ADD COLUMN IF NOT EXISTS parent_step_id String DEFAULT '',
+    ADD COLUMN IF NOT EXISTS step_name      String DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tool_name      String DEFAULT ''
 `
 
 // New opens a ClickHouse connection using dsn and pings the server to verify
@@ -94,6 +110,15 @@ func (w *Writer) CreateTable(ctx context.Context) error {
 	return nil
 }
 
+// MigrateTable adds new columns introduced after the initial schema version.
+// Safe to call on a table that already has the columns.
+func (w *Writer) MigrateTable(ctx context.Context) error {
+	if err := w.conn.Exec(ctx, migrateTableSQL); err != nil {
+		return fmt.Errorf("migrate traces table: %w", err)
+	}
+	return nil
+}
+
 // Write inserts a single TraceRecord. It delegates to BatchWrite.
 func (w *Writer) Write(ctx context.Context, record TraceRecord) error {
 	return w.BatchWrite(ctx, []TraceRecord{record})
@@ -110,7 +135,8 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 		trace_id, request_id, user_id, session_id, feature_name,
 		agent_step, provider, model, input_tokens, output_tokens,
 		cost_usd, latency_ms, status_code, masked_prompt,
-		was_pii_masked, quality_score, timestamp
+		was_pii_masked, quality_score, timestamp,
+		parent_step_id, step_name, tool_name
 	)`)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -135,6 +161,9 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 			boolToUint8(r.WasPIIMasked),
 			r.QualityScore,
 			r.Timestamp,
+			r.ParentStepID,
+			r.StepName,
+			r.ToolName,
 		); err != nil {
 			return fmt.Errorf("append record %q: %w", r.TraceID, err)
 		}
@@ -155,7 +184,8 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 		SELECT trace_id, request_id, user_id, session_id, feature_name,
 		       agent_step, provider, model, input_tokens, output_tokens,
 		       cost_usd, latency_ms, status_code, masked_prompt,
-		       was_pii_masked, quality_score, timestamp
+		       was_pii_masked, quality_score, timestamp,
+		       parent_step_id, step_name, tool_name
 		FROM traces
 		ORDER BY timestamp DESC
 		LIMIT %d`, limit))
@@ -178,6 +208,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 			&r.AgentStep, &r.Provider, &r.Model, &inputTokens, &outputTokens,
 			&r.CostUSD, &r.LatencyMs, &statusCode, &r.MaskedPrompt,
 			&wasPIIMasked, &r.QualityScore, &r.Timestamp,
+			&r.ParentStepID, &r.StepName, &r.ToolName,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}

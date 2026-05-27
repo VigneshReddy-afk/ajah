@@ -80,6 +80,9 @@ func run() error {
 	if err := writer.CreateSessionTable(startCtx); err != nil {
 		return fmt.Errorf("create session table: %w", err)
 	}
+	if err := writer.MigrateTable(startCtx); err != nil {
+		return fmt.Errorf("migrate traces table: %w", err)
+	}
 
 	// 5. PostgreSQL settings store ---------------------------------------------
 	dbStore, err := db.New(cfg.DatabaseURL, logger)
@@ -148,6 +151,9 @@ func run() error {
 			SessionID:    event.SessionID,
 			FeatureName:  event.FeatureName,
 			AgentStep:    event.AgentStep,
+			ParentStepID: event.ParentStepID,
+			StepName:     event.StepName,
+			ToolName:     event.ToolName,
 			Provider:     event.Provider,
 			Model:        event.Model,
 			InputTokens:  event.InputTokens,

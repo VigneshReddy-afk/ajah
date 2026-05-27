@@ -196,6 +196,8 @@ func TestHandler_ExtractsMetadataHeaders(t *testing.T) {
 	req.Header.Set("X-Session-ID", "sess-99")
 	req.Header.Set("X-Feature-Name", "chat-feature")
 	req.Header.Set("X-Agent-Step", "step-1")
+	req.Header.Set("X-Parent-Step-ID", "parent-step-0")
+	req.Header.Set("X-Tool-Name", "web_search")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -215,6 +217,15 @@ func TestHandler_ExtractsMetadataHeaders(t *testing.T) {
 	}
 	if evt.AgentStep != "step-1" {
 		t.Errorf("AgentStep = %q, want step-1", evt.AgentStep)
+	}
+	if evt.StepName != "step-1" {
+		t.Errorf("StepName = %q, want step-1", evt.StepName)
+	}
+	if evt.ParentStepID != "parent-step-0" {
+		t.Errorf("ParentStepID = %q, want parent-step-0", evt.ParentStepID)
+	}
+	if evt.ToolName != "web_search" {
+		t.Errorf("ToolName = %q, want web_search", evt.ToolName)
 	}
 }
 
