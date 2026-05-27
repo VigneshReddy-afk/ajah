@@ -7,7 +7,8 @@ down:
 	docker-compose down
 
 test:
-	go test ./... -v -race
+	@mkdir -p tmp
+	GOTMPDIR=$(shell pwd)/tmp go test ./... -v
 
 build:
 	go build ./cmd/gateway

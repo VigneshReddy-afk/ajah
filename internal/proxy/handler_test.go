@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -343,6 +344,94 @@ func TestHandler_BearerPrefixRoutesAnthropic(t *testing.T) {
 	evt := mustEvent(t, em)
 	if evt.Provider != "anthropic" {
 		t.Errorf("Provider = %q, want anthropic", evt.Provider)
+	}
+}
+
+func TestHandler_RoutesAdditionalProviders(t *testing.T) {
+	cases := []struct {
+		name     string
+		authKey  string
+		provider string
+	}{
+		{"groq", "gsk_testkey", "groq"},
+		{"gemini", "AIzatestkey", "gemini"},
+		{"grok", "xai-testkey", "grok"},
+		{"mistral", "mistral-testkey", "mistral"},
+		{"together", "together-testkey", "together"},
+		{"nvidia", "nvapi-testkey", "nvidia"},
+		{"cohere", "cohere-testkey", "cohere"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := mockProvider(t, http.StatusOK, llmResponse)
+			defer upstream.Close()
+
+			em := newMockEmitter()
+			h := newHandler(t, testConfig(), em)
+			h.providerURLs[tc.provider] = upstream.URL
+
+			srv := httptest.NewServer(h)
+			defer srv.Close()
+
+			resp := doPost(t, srv.URL+"/v1/chat/completions", tc.authKey, `{"model":"test-model","messages":[]}`)
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			evt := mustEvent(t, em)
+			if evt.Provider != tc.provider {
+				t.Errorf("Provider = %q, want %q", evt.Provider, tc.provider)
+			}
+		})
+	}
+}
+
+func TestHandler_RejectsAzureKeyWithPlainTextError(t *testing.T) {
+	em := newMockEmitter()
+	h := newHandler(t, testConfig(), em)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp := doPost(t, srv.URL+"/v1/chat/completions", "azure-mykey", `{"model":"gpt-4","messages":[]}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "Azure OpenAI") {
+		t.Errorf("body = %q, want Azure error message", body)
+	}
+	var v map[string]interface{}
+	if json.Unmarshal(body, &v) == nil {
+		t.Errorf("expected plain text response, got JSON: %s", body)
+	}
+}
+
+func TestHandler_RejectsUnknownKeyWithJSONError(t *testing.T) {
+	em := newMockEmitter()
+	h := newHandler(t, testConfig(), em)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp := doPost(t, srv.URL+"/v1/chat/completions", "Bearer unknown-xyz-key", `{"model":"x","messages":[]}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	var v map[string]interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatalf("response is not JSON: %v\nbody: %s", err, body)
+	}
+	if v["error"] != "unrecognized API key format" {
+		t.Errorf("error = %q, want 'unrecognized API key format'", v["error"])
+	}
+	if _, ok := v["supported_providers"]; !ok {
+		t.Errorf("response missing 'supported_providers' key")
 	}
 }
 

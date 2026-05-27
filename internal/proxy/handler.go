@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,11 @@ import (
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
 	"go.uber.org/zap"
+)
+
+var (
+	errAzureNotConfigured = errors.New("Azure OpenAI requires endpoint configuration. Set AZURE_OPENAI_ENDPOINT in your environment.")
+	supportedProviders    = []string{"openai", "anthropic", "groq", "gemini", "grok", "mistral", "together", "nvidia", "cohere"}
 )
 
 // eventSink is the interface the Handler depends on for async event dispatch.
@@ -44,6 +50,13 @@ func New(cfg *config.Config, em eventSink, logger *zap.Logger) *Handler {
 		providerURLs: map[string]string{
 			"openai":    "https://api.openai.com",
 			"anthropic": "https://api.anthropic.com",
+			"groq":      "https://api.groq.com/openai/v1",
+			"gemini":    "https://generativelanguage.googleapis.com/v1beta/openai",
+			"grok":      "https://api.x.ai/v1",
+			"mistral":   "https://api.mistral.ai/v1",
+			"together":  "https://api.together.xyz/v1",
+			"nvidia":    "https://integrate.api.nvidia.com/v1",
+			"cohere":    "https://api.cohere.ai/v1",
 		},
 	}
 }
@@ -73,8 +86,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	provider, providerURL, err := h.detectProvider(r.Header.Get("Authorization"))
 	if err != nil {
+		if errors.Is(err, errAzureNotConfigured) {
+			log.Warn("azure not configured", zap.Error(err))
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		log.Warn("unknown provider", zap.Error(err))
-		http.Error(w, fmt.Sprintf("unknown provider: %s", err), http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":               "unrecognized API key format",
+			"supported_providers": supportedProviders,
+		})
 		return
 	}
 
@@ -156,6 +179,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		LatencyMs:    latencyMs,
 		StatusCode:   resp.StatusCode,
 		Prompt:       extractPrompt(body),
+		Response:     extractResponse(respBody),
 		Timestamp:    start,
 	}
 
@@ -182,10 +206,24 @@ func (h *Handler) detectProvider(authHeader string) (provider, url string, err e
 		return "anthropic", h.providerURLs["anthropic"], nil
 	case strings.HasPrefix(key, "sk-"):
 		return "openai", h.providerURLs["openai"], nil
+	case strings.HasPrefix(key, "gsk_"):
+		return "groq", h.providerURLs["groq"], nil
+	case strings.HasPrefix(key, "AIza"):
+		return "gemini", h.providerURLs["gemini"], nil
+	case strings.HasPrefix(key, "xai-"):
+		return "grok", h.providerURLs["grok"], nil
+	case strings.HasPrefix(key, "mistral-"):
+		return "mistral", h.providerURLs["mistral"], nil
+	case strings.HasPrefix(key, "together-"):
+		return "together", h.providerURLs["together"], nil
+	case strings.HasPrefix(key, "nvapi-"):
+		return "nvidia", h.providerURLs["nvidia"], nil
+	case strings.HasPrefix(key, "cohere-"):
+		return "cohere", h.providerURLs["cohere"], nil
+	case strings.HasPrefix(key, "azure-"):
+		return "", "", errAzureNotConfigured
 	default:
-		return "", "", fmt.Errorf(
-			"authorization header prefix not recognized: expected 'sk-ant-' (Anthropic) or 'sk-' (OpenAI)",
-		)
+		return "", "", fmt.Errorf("unrecognized API key format")
 	}
 }
 
@@ -220,6 +258,35 @@ func extractModel(body []byte) string {
 		return ""
 	}
 	return req.Model
+}
+
+func extractResponse(body []byte) string {
+	// OpenAI format: choices[0].message.content
+	var openai struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(body, &openai) == nil && len(openai.Choices) > 0 {
+		return openai.Choices[0].Message.Content
+	}
+	// Anthropic format: content[].text
+	var anthropic struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(body, &anthropic) == nil {
+		for _, c := range anthropic.Content {
+			if c.Type == "text" && c.Text != "" {
+				return c.Text
+			}
+		}
+	}
+	return ""
 }
 
 func extractPrompt(body []byte) string {

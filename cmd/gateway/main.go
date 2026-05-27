@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,7 +94,10 @@ func run() error {
 	// 7. Attribution engine ----------------------------------------------------
 	engine := attribution.New(rdb, logger)
 
-	// 8. Event emitter ---------------------------------------------------------
+	// 8. Scorer HTTP client (best-effort; never fails the main pipeline) --------
+	scorerClient := &http.Client{Timeout: 3 * time.Second}
+
+	// 9. Event emitter ---------------------------------------------------------
 	const dailyKeyTTL = 90 * 24 * time.Hour
 
 	bufferSize := cfg.AsyncWorkerCount * 10
@@ -119,7 +123,15 @@ func run() error {
 			firstErr = attrErr
 		}
 
-		// Step 3: write trace to ClickHouse
+		// Step 3: quality scoring (best-effort; only for successful responses)
+		qualityScore := 0.0
+		if event.StatusCode == http.StatusOK {
+			scoreCtx, scoreCancel := context.WithTimeout(ctx, 3*time.Second)
+			qualityScore = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, logger)
+			scoreCancel()
+		}
+
+		// Step 4: write trace to ClickHouse
 		record := storage.TraceRecord{
 			TraceID:      event.RequestID,
 			RequestID:    event.RequestID,
@@ -136,7 +148,7 @@ func run() error {
 			StatusCode:   event.StatusCode,
 			MaskedPrompt: maskResult.Masked,
 			WasPIIMasked: maskResult.WasMasked,
-			QualityScore: 0,
+			QualityScore: qualityScore,
 			Timestamp:    event.Timestamp,
 		}
 		writeErr := writer.Write(ctx, record)
@@ -209,10 +221,10 @@ func run() error {
 		}
 	}()
 
-	// 9. Proxy handler ---------------------------------------------------------
+	// 10. Proxy handler --------------------------------------------------------
 	proxyHandler := proxy.New(cfg, emitter, logger)
 
-	// 10. Router ---------------------------------------------------------------
+	// 11. Router ---------------------------------------------------------------
 	r := chi.NewRouter()
 	r.Use(corsMiddleware)
 
@@ -224,7 +236,7 @@ func run() error {
 	r.Get("/settings", getSettingsHandler(dbStore, logger))
 	r.Post("/settings", postSettingsHandler(dbStore, logger))
 
-	// 11. HTTP server ----------------------------------------------------------
+	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
@@ -255,7 +267,7 @@ func run() error {
 		return nil
 	}
 
-	// 12. Graceful shutdown ----------------------------------------------------
+	// 13. Graceful shutdown ----------------------------------------------------
 	logger.Info("shutting down: draining in-flight requests")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -399,6 +411,53 @@ func scanCostKeys(
 		return nil, err
 	}
 	return result, nil
+}
+
+type scorerPayload struct {
+	RequestID   string `json:"request_id"`
+	Prompt      string `json:"prompt"`
+	Response    string `json:"response"`
+	Model       string `json:"model"`
+	FeatureName string `json:"feature_name"`
+}
+
+type scorerOutcome struct {
+	OverallQualityScore float64 `json:"overall_quality_score"`
+}
+
+// callScorer posts to the quality scorer service and returns the overall quality score.
+// Any failure (network, decode, etc.) logs a warning and returns 0 so the main
+// pipeline is never blocked by scorer availability.
+func callScorer(ctx context.Context, client *http.Client, baseURL string, event events.RequestEvent, logger *zap.Logger) float64 {
+	body, err := json.Marshal(scorerPayload{
+		RequestID:   event.RequestID,
+		Prompt:      event.Prompt,
+		Response:    event.Response,
+		Model:       event.Model,
+		FeatureName: event.FeatureName,
+	})
+	if err != nil {
+		logger.Warn("scorer: marshal failed", zap.Error(err))
+		return 0
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/score", bytes.NewReader(body))
+	if err != nil {
+		logger.Warn("scorer: build request failed", zap.Error(err))
+		return 0
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Warn("scorer unreachable", zap.Error(err))
+		return 0
+	}
+	defer resp.Body.Close()
+	var outcome scorerOutcome
+	if err := json.NewDecoder(resp.Body).Decode(&outcome); err != nil {
+		logger.Warn("scorer: decode response failed", zap.Error(err))
+		return 0
+	}
+	return outcome.OverallQualityScore
 }
 
 func extractSegment(key, prefix, suffix string) string {

@@ -9,6 +9,7 @@ services:
       REDIS_URL: redis://redis:6379
       DATABASE_URL: postgres://observatory:observatory@postgres:5432/observatory
       CLICKHOUSE_URL: ${CLICKHOUSE_URL}
+      SCORER_URL: http://scorer:8001
       LOG_LEVEL: debug
       ASYNC_WORKER_COUNT: "5"
     depends_on:
@@ -66,6 +67,16 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  scorer:
+    build: ./scorer
+    ports:
+      - "8001:8001"
+    depends_on:
+      - gateway
+    environment:
+      GATEWAY_URL: http://gateway:8080
     restart: unless-stopped
 
   dashboard:

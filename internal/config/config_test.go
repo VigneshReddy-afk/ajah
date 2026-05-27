@@ -7,7 +7,7 @@ import (
 func TestLoad_Defaults(t *testing.T) {
 	// Explicitly blank all relevant env vars so machine-level values don't bleed in.
 	for _, key := range []string{
-		"PORT", "REDIS_URL", "DATABASE_URL", "CLICKHOUSE_URL", "LOG_LEVEL",
+		"PORT", "REDIS_URL", "DATABASE_URL", "CLICKHOUSE_URL", "SCORER_URL", "LOG_LEVEL",
 		"MAX_REQUEST_BODY_BYTES", "ASYNC_WORKER_COUNT", "PROVIDER_TIMEOUT_SECONDS",
 	} {
 		t.Setenv(key, "")
@@ -29,6 +29,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.ClickHouseURL != defaultClickHouseURL {
 		t.Errorf("ClickHouseURL = %q, want %q", cfg.ClickHouseURL, defaultClickHouseURL)
+	}
+	if cfg.ScorerURL != defaultScorerURL {
+		t.Errorf("ScorerURL = %q, want %q", cfg.ScorerURL, defaultScorerURL)
 	}
 	if cfg.LogLevel != defaultLogLevel {
 		t.Errorf("LogLevel = %q, want %q", cfg.LogLevel, defaultLogLevel)

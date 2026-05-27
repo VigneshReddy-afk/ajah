@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from 'recharts'
+import { format } from 'date-fns'
 import { fetchJSON } from '../api/client'
-import type { CostMetrics } from '../api/types'
+import type { CostMetrics, TraceRecord } from '../api/types'
 
 const PALETTE = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444']
 
@@ -13,10 +14,36 @@ const tooltipStyle = {
   labelStyle: { color: '#f3f4f6' },
 }
 
+function buildQualityTrend(traces: TraceRecord[]) {
+  const byHour: Record<string, number[]> = {}
+  for (const t of traces) {
+    const label = format(new Date(t.timestamp), 'HH:00')
+    if (!byHour[label]) byHour[label] = []
+    byHour[label].push(t.quality_score)
+  }
+  return Object.entries(byHour)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([hour, scores]) => ({
+      hour,
+      avg: +(scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(4),
+    }))
+}
+
+function qualityColor(avg: number) {
+  if (avg > 0.7) return '#10b981'
+  if (avg >= 0.4) return '#f59e0b'
+  return '#ef4444'
+}
+
 export default function Overview() {
   const { data, isLoading, error } = useQuery<CostMetrics>({
     queryKey: ['metrics'],
     queryFn: () => fetchJSON('/metrics/cost'),
+  })
+
+  const { data: traces } = useQuery<TraceRecord[]>({
+    queryKey: ['traces'],
+    queryFn: () => fetchJSON('/metrics/traces'),
   })
 
   if (isLoading) return <Loading />
@@ -103,7 +130,62 @@ export default function Overview() {
           )}
         </ChartCard>
       </div>
+
+      {/* Quality Trend */}
+      <QualityTrend traces={traces ?? []} />
     </div>
+  )
+}
+
+function QualityTrend({ traces }: { traces: TraceRecord[] }) {
+  if (traces.length === 0) {
+    return (
+      <ChartCard title="Output Quality Trend">
+        <Empty msg="No quality data yet" />
+      </ChartCard>
+    )
+  }
+
+  const allZero = traces.every(t => t.quality_score === 0)
+  if (allZero) {
+    return (
+      <ChartCard title="Output Quality Trend">
+        <Empty msg="Waiting for successful LLM responses" />
+      </ChartCard>
+    )
+  }
+
+  const trendData = buildQualityTrend(traces)
+  const overallAvg = trendData.reduce((s, d) => s + d.avg, 0) / trendData.length
+  const lineColor = qualityColor(overallAvg)
+
+  return (
+    <ChartCard title="Output Quality Trend">
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={trendData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <XAxis dataKey="hour" tick={{ fill: '#9ca3af', fontSize: 11 }} />
+          <YAxis
+            domain={[0, 1]}
+            tick={{ fill: '#9ca3af', fontSize: 11 }}
+            tickFormatter={v => v.toFixed(1)}
+            width={40}
+          />
+          <Tooltip
+            {...tooltipStyle}
+            formatter={(v: number) => [v.toFixed(4), 'Avg Quality']}
+          />
+          <Line
+            type="monotone"
+            dataKey="avg"
+            stroke={lineColor}
+            strokeWidth={2}
+            dot={{ fill: lineColor, r: 4 }}
+            activeDot={{ r: 6 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </ChartCard>
   )
 }
 
@@ -141,10 +223,10 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   )
 }
 
-function Empty() {
+function Empty({ msg = 'No data yet' }: { msg?: string }) {
   return (
     <div className="h-[220px] flex items-center justify-center text-gray-600 text-sm">
-      No data yet
+      {msg}
     </div>
   )
 }
