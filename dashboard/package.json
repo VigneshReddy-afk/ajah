@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.44.0",
     "@tanstack/react-query": "^5.80.2",
     "date-fns": "^4.1.0",
     "react": "^19.1.0",

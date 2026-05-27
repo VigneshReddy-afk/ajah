@@ -1,10 +1,86 @@
+import type { CSSProperties } from 'react'
 import { Fragment, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { fetchJSON } from '../api/client'
 import type { TraceRecord } from '../api/types'
 
-const COLS = ['Timestamp', 'User', 'Feature', 'Model', 'Cost', 'Latency', 'PII', 'Quality']
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface Row {
+  id: string
+  ts: string
+  user: string
+  feature: string
+  model: string
+  cost: number
+  latency: number
+  pii: boolean
+  quality: number
+  prompt: string
+  flags: string[]
+}
+
+// ── Mock data ──────────────────────────────────────────────────────────────
+
+const MOCK_ROWS: Row[] = [
+  { id: '1', ts: '12:48:40', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000660, latency: 1506, pii: false, quality: 0.90, prompt: 'What is the capital of France?',              flags: [] },
+  { id: '2', ts: '12:42:59', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000660, latency: 1459, pii: false, quality: 0.00, prompt: '',                                             flags: ['empty_response'] },
+  { id: '3', ts: '11:25:42', user: 'user_2', feature: 'summarize', model: 'gpt-4o',        cost: 0.002340, latency: 2341, pii: true,  quality: 0.85, prompt: 'Summarize the following document for me…',    flags: [] },
+  { id: '4', ts: '10:15:33', user: 'user_3', feature: 'classify',  model: 'claude-3-5',    cost: 0.001200, latency:  890, pii: false, quality: 0.95, prompt: 'Classify the sentiment of: Great product!',   flags: [] },
+  { id: '5', ts: '09:45:12', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000550, latency: 1100, pii: false, quality: 0.88, prompt: 'How does machine learning work?',              flags: [] },
+  { id: '6', ts: '09:12:05', user: 'user_4', feature: 'translate', model: 'mistral',       cost: 0.000890, latency:  750, pii: true,  quality: 0.92, prompt: 'Translate: Contact me at [EMAIL MASKED]',     flags: ['pii_detected'] },
+  { id: '7', ts: '08:33:44', user: 'user_2', feature: 'summarize', model: 'gpt-4o',        cost: 0.001800, latency: 1890, pii: false, quality: 0.78, prompt: 'Summarize this article about AI safety…',     flags: [] },
+  { id: '8', ts: '08:01:22', user: 'user_5', feature: 'chat',      model: 'gemini-1.5',    cost: 0.000420, latency:  650, pii: false, quality: 0.93, prompt: 'Write a haiku about autumn.',                  flags: [] },
+  { id: '9', ts: '22:04:13', user: 'user_1', feature: 'chat',      model: 'gpt-4o',        cost: 0.000000, latency:  875, pii: true,  quality: 0.00, prompt: 'Call me at [PHONE MASKED]',                   flags: ['pii_detected', 'empty_response'] },
+]
+
+function fromAPI(t: TraceRecord): Row {
+  return {
+    id: t.trace_id,
+    ts: format(new Date(t.timestamp), 'HH:mm:ss'),
+    user: t.user_id,
+    feature: t.feature_name,
+    model: t.model,
+    cost: t.cost_usd,
+    latency: t.latency_ms,
+    pii: t.was_pii_masked,
+    quality: t.quality_score,
+    prompt: t.masked_prompt,
+    flags: [],
+  }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function qualityStyle(score: number): CSSProperties {
+  if (score === 0) return { color: 'var(--color-text-tertiary)' }
+  if (score >= 0.8)  return { color: '#0F6E56', fontWeight: 500 }
+  if (score >= 0.5)  return { color: '#854F0B', fontWeight: 500 }
+  return { color: '#A32D2D', fontWeight: 500 }
+}
+
+const thStyle: CSSProperties = {
+  padding: '10px 14px',
+  fontSize: 11,
+  fontWeight: 500,
+  color: 'var(--color-text-tertiary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  textAlign: 'left',
+  borderBottom: '0.5px solid var(--color-border-tertiary)',
+  whiteSpace: 'nowrap',
+}
+
+const tdStyle: CSSProperties = {
+  padding: '11px 14px',
+  fontSize: 13,
+  color: 'var(--color-text-secondary)',
+  borderBottom: '0.5px solid var(--color-border-tertiary)',
+  whiteSpace: 'nowrap',
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function Traces() {
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -14,96 +90,146 @@ export default function Traces() {
     queryFn: () => fetchJSON('/metrics/traces'),
   })
 
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading...</div>
-  if (error) return <div className="p-6 text-red-400 text-sm">Failed to load traces</div>
+  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 13 }}>Failed to load traces</div>
+
+  const rows: Row[] = data.length > 0 ? data.map(fromAPI) : MOCK_ROWS
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold text-white">Traces</h1>
-        <span className="text-xs text-gray-500">{data.length} rows — click to expand</span>
+    <div style={{ padding: 24 }}>
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+          {rows.length} rows — click row to expand
+        </span>
       </div>
 
-      <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      <div style={{
+        background: 'var(--color-background-secondary)',
+        border: '0.5px solid var(--color-border-tertiary)',
+        borderRadius: 10,
+        overflow: 'hidden',
+      }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr className="border-b border-gray-800">
-                {COLS.map(h => (
-                  <th
-                    key={h}
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide"
-                  >
-                    {h}
-                  </th>
+              <tr>
+                {['Timestamp', 'User', 'Feature', 'Model', 'Cost', 'Latency', 'PII', 'Quality'].map(h => (
+                  <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {data.length === 0 && (
+              {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-600 text-sm">
+                  <td colSpan={8} style={{ padding: '40px 14px', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
                     No traces yet
                   </td>
                 </tr>
               )}
-              {data.map(trace => (
-                <Fragment key={trace.trace_id}>
+
+              {rows.map(row => (
+                <Fragment key={row.id}>
                   <tr
-                    onClick={() =>
-                      setExpanded(expanded === trace.trace_id ? null : trace.trace_id)
-                    }
-                    className="border-b border-gray-800/60 hover:bg-gray-800/50 cursor-pointer transition-colors"
+                    onClick={() => setExpanded(expanded === row.id ? null : row.id)}
+                    style={{ cursor: 'pointer', transition: 'background 0.1s' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-primary)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <td className="px-4 py-3 text-gray-300 whitespace-nowrap font-mono text-xs">
-                      {format(new Date(trace.timestamp), 'HH:mm:ss')}
+                    {/* Timestamp */}
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                      {row.ts}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 max-w-[120px] truncate">
-                      {trace.user_id || <span className="text-gray-600">—</span>}
+                    {/* User */}
+                    <td style={tdStyle}>{row.user || '—'}</td>
+                    {/* Feature */}
+                    <td style={{ ...tdStyle, color: 'var(--color-text-primary)' }}>{row.feature || '—'}</td>
+                    {/* Model badge */}
+                    <td style={tdStyle}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 500,
+                        color: '#185FA5',
+                        background: 'rgba(24,95,165,0.10)',
+                        padding: '2px 7px',
+                        borderRadius: 4,
+                      }}>
+                        {row.model}
+                      </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">
-                      {trace.feature_name || <span className="text-gray-600">—</span>}
+                    {/* Cost */}
+                    <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>
+                      ${row.cost.toFixed(6)}
                     </td>
-                    <td className="px-4 py-3 text-indigo-400">{trace.model}</td>
-                    <td className="px-4 py-3 text-gray-300 tabular-nums">
-                      ${trace.cost_usd.toFixed(6)}
+                    {/* Latency */}
+                    <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>
+                      {row.latency}ms
                     </td>
-                    <td className="px-4 py-3 text-gray-300 tabular-nums">
-                      {trace.latency_ms}ms
-                    </td>
-                    <td className="px-4 py-3">
-                      {trace.was_pii_masked ? (
-                        <span className="px-2 py-0.5 rounded text-xs bg-amber-500/20 text-amber-400 font-medium">
-                          YES
-                        </span>
+                    {/* PII */}
+                    <td style={tdStyle}>
+                      {row.pii ? (
+                        <span style={{
+                          fontSize: 11, fontWeight: 500,
+                          color: '#A32D2D',
+                          background: 'rgba(163,45,45,0.12)',
+                          padding: '2px 7px',
+                          borderRadius: 4,
+                        }}>YES</span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-500">
-                          NO
-                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          color: 'var(--color-text-tertiary)',
+                          background: 'var(--color-background-primary)',
+                          padding: '2px 7px',
+                          borderRadius: 4,
+                        }}>NO</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 tabular-nums">
-                      {trace.quality_score.toFixed(2)}
+                    {/* Quality */}
+                    <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums', ...qualityStyle(row.quality) }}>
+                      {row.quality.toFixed(2)}
                     </td>
                   </tr>
 
-                  {expanded === trace.trace_id && (
-                    <tr className="bg-gray-800/40 border-b border-gray-800/60">
-                      <td colSpan={8} className="px-4 py-4">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-1.5">
+                  {/* Expanded row */}
+                  {expanded === row.id && (
+                    <tr>
+                      <td colSpan={8} style={{
+                        padding: '16px 14px 18px',
+                        background: 'var(--color-background-primary)',
+                        borderBottom: '0.5px solid var(--color-border-tertiary)',
+                      }}>
+                        <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>
                           Masked Prompt
                         </p>
-                        <p className="text-sm text-gray-200 font-mono leading-relaxed whitespace-pre-wrap">
-                          {trace.masked_prompt || (
-                            <span className="text-gray-600 italic">empty</span>
-                          )}
-                        </p>
-                        <div className="mt-2 flex gap-4 text-xs text-gray-500">
-                          <span>trace: {trace.trace_id}</span>
-                          <span>provider: {trace.provider}</span>
-                          <span>status: {trace.status_code}</span>
-                          <span>in: {trace.input_tokens} / out: {trace.output_tokens}</span>
+                        <div style={{
+                          background: 'var(--color-background-secondary)',
+                          border: '0.5px solid var(--color-border-tertiary)',
+                          borderRadius: 6,
+                          padding: '10px 14px',
+                          fontFamily: 'monospace',
+                          fontSize: 13,
+                          color: 'var(--color-text-primary)',
+                          lineHeight: 1.6,
+                          whiteSpace: 'pre-wrap',
+                        }}>
+                          {row.prompt || <span style={{ color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>empty</span>}
                         </div>
+
+                        {row.flags.length > 0 && (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                            {row.flags.map(flag => (
+                              <span key={flag} style={{
+                                fontSize: 10, fontWeight: 500,
+                                color: '#854F0B',
+                                background: 'rgba(133,79,11,0.12)',
+                                border: '0.5px solid rgba(133,79,11,0.2)',
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                              }}>
+                                {flag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}

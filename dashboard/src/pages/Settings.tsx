@@ -1,7 +1,11 @@
+import type { CSSProperties } from 'react'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { IconEye, IconEyeOff } from '@tabler/icons-react'
 import { fetchJSON, postJSON } from '../api/client'
 import type { FeatureSetting, ProviderKey, Settings } from '../api/types'
+
+// ── Provider metadata ──────────────────────────────────────────────────────
 
 const PROVIDER_META: Record<string, { label: string; placeholder: string }> = {
   openai:    { label: 'OpenAI',       placeholder: 'sk-...' },
@@ -15,22 +19,72 @@ const PROVIDER_META: Record<string, { label: string; placeholder: string }> = {
   cohere:    { label: 'Cohere',       placeholder: 'cohere-...' },
 }
 
-const PROVIDER_ORDER = ['openai', 'anthropic', 'groq', 'gemini', 'grok', 'mistral', 'together', 'nvidia', 'cohere']
-
+const PROVIDER_ORDER = Object.keys(PROVIDER_META)
 const DEFAULT_PROVIDERS: ProviderKey[] = PROVIDER_ORDER.map(p => ({ provider: p, api_key: '' }))
 
-function EyeIcon({ open }: { open: boolean }) {
-  return open ? (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-    </svg>
-  ) : (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-    </svg>
-  )
+const MOCK_FEATURES: FeatureSetting[] = [
+  { feature_name: 'chat',      cost_alert_threshold_usd: 1.00, pii_masking_enabled: true },
+  { feature_name: 'summarize', cost_alert_threshold_usd: 2.00, pii_masking_enabled: true },
+  { feature_name: 'translate', cost_alert_threshold_usd: 0.50, pii_masking_enabled: false },
+  { feature_name: 'classify',  cost_alert_threshold_usd: 0.50, pii_masking_enabled: false },
+]
+
+// ── Styles ─────────────────────────────────────────────────────────────────
+
+const card: CSSProperties = {
+  background: 'var(--color-background-secondary)',
+  border: '0.5px solid var(--color-border-tertiary)',
+  borderRadius: 10,
+  padding: '16px',
 }
+
+const inputStyle: CSSProperties = {
+  width: '100%',
+  background: 'var(--color-background-primary)',
+  border: '0.5px solid var(--color-border-secondary)',
+  borderRadius: 6,
+  padding: '8px 36px 8px 10px',
+  fontSize: 13,
+  color: 'var(--color-text-primary)',
+  outline: 'none',
+}
+
+const labelStyle: CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  color: 'var(--color-text-tertiary)',
+  marginBottom: 6,
+  fontWeight: 500,
+}
+
+const sectionTitle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--color-text-secondary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  margin: '0 0 14px',
+}
+
+const thStyle: CSSProperties = {
+  padding: '10px 14px',
+  fontSize: 11,
+  fontWeight: 500,
+  color: 'var(--color-text-tertiary)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  textAlign: 'left',
+  borderBottom: '0.5px solid var(--color-border-tertiary)',
+}
+
+const tdStyle: CSSProperties = {
+  padding: '11px 14px',
+  fontSize: 13,
+  color: 'var(--color-text-secondary)',
+  borderBottom: '0.5px solid var(--color-border-tertiary)',
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const qc = useQueryClient()
@@ -39,13 +93,13 @@ export default function SettingsPage() {
     queryFn: () => fetchJSON('/settings'),
   })
 
-  const [features, setFeatures] = useState<FeatureSetting[]>([])
+  const [features, setFeatures] = useState<FeatureSetting[]>(MOCK_FEATURES)
   const [providers, setProviders] = useState<ProviderKey[]>(DEFAULT_PROVIDERS)
   const [visible, setVisible] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!data) return
-    setFeatures(data.feature_settings ?? [])
+    if (data.feature_settings?.length) setFeatures(data.feature_settings)
     const merged = DEFAULT_PROVIDERS.map(def => {
       const saved = data.provider_keys?.find(k => k.provider === def.provider)
       return saved ?? def
@@ -60,156 +114,229 @@ export default function SettingsPage() {
 
   const save = () => mutation.mutate({ feature_settings: features, provider_keys: providers })
 
-  const updateFeature = (i: number, patch: Partial<FeatureSetting>) =>
-    setFeatures(prev => prev.map((f, j) => (j === i ? { ...f, ...patch } : f)))
-
   const updateProvider = (provider: string, api_key: string) =>
-    setProviders(prev => prev.map(p => (p.provider === provider ? { ...p, api_key } : p)))
+    setProviders(prev => prev.map(p => p.provider === provider ? { ...p, api_key } : p))
 
-  const toggleVisible = (provider: string) =>
-    setVisible(prev => ({ ...prev, [provider]: !prev[provider] }))
+  const toggleVisible = (p: string) =>
+    setVisible(prev => ({ ...prev, [p]: !prev[p] }))
 
-  if (isLoading) return <div className="p-6 text-gray-500 text-sm">Loading...</div>
+  const updateFeature = (i: number, patch: Partial<FeatureSetting>) =>
+    setFeatures(prev => prev.map((f, j) => j === i ? { ...f, ...patch } : f))
+
+  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
 
   return (
-    <div className="p-6 space-y-8 max-w-3xl">
-      <h1 className="text-xl font-semibold text-white">Settings</h1>
+    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 900 }}>
 
-      {/* Feature configuration */}
+      {/* ── Provider API Keys ── */}
       <section>
-        <h2 className="text-sm font-semibold text-gray-300 mb-3">Feature Configuration</h2>
-        <div className="space-y-3">
-          {features.map((f, i) => (
-            <div key={i} className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-3">
-              <input
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="Feature name (e.g. chat)"
-                value={f.feature_name}
-                onChange={e => updateFeature(i, { feature_name: e.target.value })}
-              />
-              <div className="flex items-end gap-4">
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-400 mb-1">
-                    Cost alert threshold (USD / day)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    value={f.cost_alert_threshold_usd}
-                    onChange={e =>
-                      updateFeature(i, {
-                        cost_alert_threshold_usd: parseFloat(e.target.value) || 0,
-                      })
-                    }
-                  />
-                </div>
-                <div className="flex items-center gap-2 pb-1">
-                  <span className="text-xs text-gray-400">PII Masking</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateFeature(i, { pii_masking_enabled: !f.pii_masking_enabled })
-                    }
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      f.pii_masking_enabled ? 'bg-indigo-600' : 'bg-gray-700'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-3 w-3 rounded-full bg-white shadow transform transition-transform ${
-                        f.pii_masking_enabled ? 'translate-x-5' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFeatures(prev => prev.filter((_, j) => j !== i))}
-                  className="pb-1 text-gray-600 hover:text-red-400 text-xs transition-colors"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
+        <p style={sectionTitle}>Provider API Keys</p>
 
-          <button
-            type="button"
-            onClick={() =>
-              setFeatures(prev => [
-                ...prev,
-                { feature_name: '', cost_alert_threshold_usd: 1.0, pii_masking_enabled: true },
-              ])
-            }
-            className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
-          >
-            + Add feature
-          </button>
-        </div>
-      </section>
-
-      {/* Provider API Keys */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-300 mb-3">Provider API Keys</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {providers.map(pk => {
             const meta = PROVIDER_META[pk.provider]
-            const isVisible = !!visible[pk.provider]
+            const show = !!visible[pk.provider]
             return (
-              <div key={pk.provider} className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-                <label className="block text-xs text-gray-400 mb-1.5">{meta.label} API Key</label>
-                <div className="relative">
+              <div key={pk.provider} style={card}>
+                <label style={labelStyle}>{meta.label} API Key</label>
+                <div style={{ position: 'relative' }}>
                   <input
-                    type={isVisible ? 'text' : 'password'}
+                    type={show ? 'text' : 'password'}
                     autoComplete="off"
                     placeholder={meta.placeholder}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-9 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    style={inputStyle}
                     value={pk.api_key}
                     onChange={e => updateProvider(pk.provider, e.target.value)}
                   />
                   <button
                     type="button"
                     onClick={() => toggleVisible(pk.provider)}
-                    className="absolute inset-y-0 right-2 flex items-center text-gray-500 hover:text-gray-300 transition-colors"
-                    aria-label={isVisible ? 'Hide key' : 'Show key'}
+                    style={{
+                      position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                      color: 'var(--color-text-tertiary)',
+                      display: 'flex', alignItems: 'center',
+                    }}
                   >
-                    <EyeIcon open={isVisible} />
+                    {show ? <IconEyeOff size={15} strokeWidth={1.75} /> : <IconEye size={15} strokeWidth={1.75} />}
                   </button>
                 </div>
               </div>
             )
           })}
 
-          {/* Azure note — spans both columns */}
-          <div className="sm:col-span-2 bg-amber-950/40 border border-amber-700/50 rounded-xl p-4">
-            <p className="text-xs font-semibold text-amber-400 mb-1">Azure OpenAI</p>
-            <p className="text-xs text-amber-300/80 leading-relaxed">
+          {/* Azure — full width */}
+          <div style={{
+            gridColumn: '1 / -1',
+            background: 'rgba(133,79,11,0.07)',
+            border: '0.5px solid rgba(133,79,11,0.25)',
+            borderRadius: 10,
+            padding: '14px 18px',
+          }}>
+            <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#854F0B' }}>Azure OpenAI</p>
+            <p style={{ margin: 0, fontSize: 12, color: 'rgba(133,79,11,0.85)', lineHeight: 1.6 }}>
               Azure requires endpoint configuration.{' '}
-              Set <code className="font-mono bg-amber-900/50 px-1 rounded">AZURE_OPENAI_ENDPOINT</code>{' '}
-              in your <code className="font-mono bg-amber-900/50 px-1 rounded">.env</code> file.
+              Set{' '}
+              <code style={{ fontFamily: 'monospace', background: 'rgba(133,79,11,0.12)', padding: '1px 5px', borderRadius: 3 }}>
+                AZURE_OPENAI_ENDPOINT
+              </code>{' '}
+              in your{' '}
+              <code style={{ fontFamily: 'monospace', background: 'rgba(133,79,11,0.12)', padding: '1px 5px', borderRadius: 3 }}>
+                .env
+              </code>{' '}
+              file.
             </p>
           </div>
         </div>
       </section>
 
-      {/* Save */}
-      <div className="flex items-center gap-3">
+      {/* ── Feature Configuration ── */}
+      <section>
+        <p style={sectionTitle}>Feature Configuration</p>
+
+        <div style={{
+          background: 'var(--color-background-secondary)',
+          border: '0.5px solid var(--color-border-tertiary)',
+          borderRadius: 10,
+          overflow: 'hidden',
+          marginBottom: 12,
+        }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Feature</th>
+                <th style={thStyle}>Cost alert threshold</th>
+                <th style={thStyle}>PII masking</th>
+                <th style={thStyle}>Status</th>
+                <th style={{ ...thStyle, width: 60 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {features.map((f, i) => (
+                <tr key={i}>
+                  <td style={tdStyle}>
+                    <input
+                      value={f.feature_name}
+                      onChange={e => updateFeature(i, { feature_name: e.target.value })}
+                      placeholder="feature name"
+                      style={{ ...inputStyle, padding: '6px 10px', width: 140 }}
+                    />
+                  </td>
+                  <td style={tdStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 13 }}>$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={f.cost_alert_threshold_usd}
+                        onChange={e => updateFeature(i, { cost_alert_threshold_usd: parseFloat(e.target.value) || 0 })}
+                        style={{ ...inputStyle, padding: '6px 10px', width: 90 }}
+                      />
+                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>/ day</span>
+                    </div>
+                  </td>
+                  <td style={tdStyle}>
+                    <button
+                      type="button"
+                      onClick={() => updateFeature(i, { pii_masking_enabled: !f.pii_masking_enabled })}
+                      style={{
+                        width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                        background: f.pii_masking_enabled ? '#185FA5' : 'var(--color-background-primary)',
+                        position: 'relative', transition: 'background 0.15s',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: 2, width: 16, height: 16,
+                        borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                        left: f.pii_masking_enabled ? 18 : 2,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                      }} />
+                    </button>
+                  </td>
+                  <td style={tdStyle}>
+                    {f.feature_name ? (
+                      <span style={{
+                        fontSize: 11, fontWeight: 500,
+                        color: '#0F6E56',
+                        background: 'rgba(15,110,86,0.12)',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                      }}>Active</span>
+                    ) : (
+                      <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => setFeatures(prev => prev.filter((_, j) => j !== i))}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+                        fontSize: 12, color: 'var(--color-text-tertiary)',
+                        transition: 'color 0.12s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#A32D2D')}
+                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {features.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-text-tertiary)', padding: '24px 14px' }}>
+                    No features configured
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setFeatures(prev => [...prev, { feature_name: '', cost_alert_threshold_usd: 1.0, pii_masking_enabled: true }])}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontSize: 13, color: '#185FA5',
+          }}
+        >
+          + Add feature
+        </button>
+      </section>
+
+      {/* ── Save ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <button
           type="button"
           onClick={save}
           disabled={mutation.isPending}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+          style={{
+            background: '#185FA5',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 7,
+            padding: '9px 20px',
+            fontSize: 13,
+            fontWeight: 500,
+            cursor: mutation.isPending ? 'default' : 'pointer',
+            opacity: mutation.isPending ? 0.6 : 1,
+            transition: 'opacity 0.15s',
+          }}
         >
-          {mutation.isPending ? 'Saving...' : 'Save Settings'}
+          {mutation.isPending ? 'Saving…' : 'Save Settings'}
         </button>
         {mutation.isSuccess && (
-          <span className="text-sm text-green-400">Saved successfully</span>
+          <span style={{ fontSize: 13, color: '#0F6E56', fontWeight: 500 }}>Settings saved</span>
         )}
         {mutation.isError && (
-          <span className="text-sm text-red-400">Failed to save</span>
+          <span style={{ fontSize: 13, color: '#A32D2D' }}>Failed to save</span>
         )}
       </div>
+
     </div>
   )
 }

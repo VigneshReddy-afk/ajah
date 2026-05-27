@@ -1,44 +1,140 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import {
+  IconLayoutDashboard,
+  IconActivity,
+  IconBell,
+  IconSettings,
+} from '@tabler/icons-react'
+import { format } from 'date-fns'
 
 const nav = [
-  { path: '/overview', label: 'Overview' },
-  { path: '/traces',   label: 'Traces' },
-  { path: '/alerts',   label: 'Alerts' },
-  { path: '/settings', label: 'Settings' },
+  { path: '/overview', label: 'Overview', Icon: IconLayoutDashboard },
+  { path: '/traces',   label: 'Traces',   Icon: IconActivity },
+  { path: '/alerts',   label: 'Alerts',   Icon: IconBell },
+  { path: '/settings', label: 'Settings', Icon: IconSettings },
 ]
 
+const PAGE_META: Record<string, { title: string; badge?: string }> = {
+  '/overview': { title: 'Overview',  badge: 'Today' },
+  '/traces':   { title: 'Traces',    badge: 'Live feed' },
+  '/alerts':   { title: 'Alerts' },
+  '/settings': { title: 'Settings' },
+}
+
 export default function Layout() {
+  const location = useLocation()
+  const [hovered, setHovered] = useState<string | null>(null)
+  const meta = PAGE_META[location.pathname] ?? { title: 'Dashboard' }
+
   return (
-    <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
-      <aside className="w-52 shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="px-5 py-4 border-b border-gray-800">
-          <div className="text-base font-bold text-white tracking-tight">ajah</div>
-          <div className="text-xs text-gray-500 mt-0.5">LLM Observability</div>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--color-background-tertiary)' }}>
+
+      {/* ── Sidebar ── */}
+      <aside style={{
+        width: 196,
+        flexShrink: 0,
+        background: 'var(--color-background-secondary)',
+        borderRight: '0.5px solid var(--color-border-tertiary)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+
+        {/* Logo */}
+        <div style={{ padding: '16px 14px 14px', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 26, height: 26, borderRadius: 6,
+              background: '#185FA5',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12, fontWeight: 700, color: '#fff',
+              flexShrink: 0, letterSpacing: '-0.5px',
+            }}>A</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)', lineHeight: 1.2 }}>ajah</div>
+              <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginTop: 2 }}>LLM observability</div>
+            </div>
+          </div>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
-          {nav.map(({ path, label }) => (
+
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: 8, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {nav.map(({ path, label, Icon }) => (
             <NavLink
               key={path}
               to={path}
-              className={({ isActive }) =>
-                `block px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                }`
-              }
+              onMouseEnter={() => setHovered(path)}
+              onMouseLeave={() => setHovered(null)}
+              style={({ isActive }) => ({
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '7px 10px',
+                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: isActive ? 500 : 400,
+                color: isActive ? '#185FA5' : hovered === path ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                background: isActive
+                  ? 'rgba(24,95,165,0.13)'
+                  : hovered === path
+                  ? 'var(--color-background-primary)'
+                  : 'transparent',
+                textDecoration: 'none',
+                transition: 'background 0.12s, color 0.12s',
+              })}
             >
+              <Icon size={15} strokeWidth={1.75} />
               {label}
             </NavLink>
           ))}
         </nav>
-        <div className="px-5 py-3 border-t border-gray-800">
-          <p className="text-xs text-gray-600">v0.1.0</p>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 14px', borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>v0.1.0 · MIT license</span>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+
+      {/* ── Right column ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Top bar */}
+        <div style={{
+          height: 52,
+          flexShrink: 0,
+          background: 'var(--color-background-secondary)',
+          borderBottom: '0.5px solid var(--color-border-tertiary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 24px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+              {meta.title}
+            </span>
+            {meta.badge && (
+              <span style={{
+                fontSize: 11, fontWeight: 500,
+                color: '#185FA5',
+                background: 'rgba(24,95,165,0.13)',
+                padding: '2px 8px',
+                borderRadius: 4,
+              }}>
+                {meta.badge}
+              </span>
+            )}
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+            {format(new Date(), 'MMMM d, yyyy')}
+          </span>
+        </div>
+
+        {/* Scrollable content */}
+        <main style={{ flex: 1, overflowY: 'auto' }}>
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }
