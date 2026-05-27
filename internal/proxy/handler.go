@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -121,7 +122,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	model := extractModel(body)
 
-	targetURL := providerURL + r.URL.RequestURI()
+	targetURL := buildTargetURL(providerURL, r.URL.RequestURI())
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(body))
 	if err != nil {
 		log.Error("failed to build upstream request", zap.Error(err))
@@ -129,6 +130,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyHeaders(upstreamReq.Header, r.Header)
+	authKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	upstreamReq.Header.Set("Authorization", "Bearer "+authKey)
 
 	log.Info("forwarding request",
 		zap.String("provider", provider),
@@ -225,6 +228,17 @@ func (h *Handler) detectProvider(authHeader string) (provider, url string, err e
 	default:
 		return "", "", fmt.Errorf("unrecognized API key format")
 	}
+}
+
+// buildTargetURL appends the client's request path to the provider base URL.
+// When the provider URL already contains a version path (e.g. /openai/v1),
+// the leading /v1 is stripped from the incoming path to avoid duplication.
+func buildTargetURL(providerURL, requestURI string) string {
+	parsed, err := url.Parse(providerURL)
+	if err != nil || parsed.Path == "" || parsed.Path == "/" {
+		return providerURL + requestURI
+	}
+	return providerURL + strings.TrimPrefix(requestURI, "/v1")
 }
 
 func copyHeaders(dst, src http.Header) {

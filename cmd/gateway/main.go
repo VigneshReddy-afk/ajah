@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -429,6 +430,9 @@ type scorerOutcome struct {
 // Any failure (network, decode, etc.) logs a warning and returns 0 so the main
 // pipeline is never blocked by scorer availability.
 func callScorer(ctx context.Context, client *http.Client, baseURL string, event events.RequestEvent, logger *zap.Logger) float64 {
+	scorerURL := baseURL + "/score"
+	logger.Debug("scorer: calling", zap.String("url", scorerURL), zap.String("request_id", event.RequestID))
+
 	body, err := json.Marshal(scorerPayload{
 		RequestID:   event.RequestID,
 		Prompt:      event.Prompt,
@@ -440,7 +444,7 @@ func callScorer(ctx context.Context, client *http.Client, baseURL string, event 
 		logger.Warn("scorer: marshal failed", zap.Error(err))
 		return 0
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/score", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, scorerURL, bytes.NewReader(body))
 	if err != nil {
 		logger.Warn("scorer: build request failed", zap.Error(err))
 		return 0
@@ -448,15 +452,31 @@ func callScorer(ctx context.Context, client *http.Client, baseURL string, event 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		logger.Warn("scorer unreachable", zap.Error(err))
+		logger.Warn("scorer: unreachable", zap.String("url", scorerURL), zap.Error(err))
 		return 0
 	}
 	defer resp.Body.Close()
-	var outcome scorerOutcome
-	if err := json.NewDecoder(resp.Body).Decode(&outcome); err != nil {
-		logger.Warn("scorer: decode response failed", zap.Error(err))
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Warn("scorer: read response failed", zap.Error(err))
 		return 0
 	}
+	logger.Debug("scorer: raw response",
+		zap.String("request_id", event.RequestID),
+		zap.Int("status_code", resp.StatusCode),
+		zap.String("body", string(rawBody)),
+	)
+
+	var outcome scorerOutcome
+	if err := json.Unmarshal(rawBody, &outcome); err != nil {
+		logger.Warn("scorer: decode response failed", zap.String("body", string(rawBody)), zap.Error(err))
+		return 0
+	}
+	logger.Debug("scorer: quality score extracted",
+		zap.String("request_id", event.RequestID),
+		zap.Float64("quality_score", outcome.OverallQualityScore),
+	)
 	return outcome.OverallQualityScore
 }
 

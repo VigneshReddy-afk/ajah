@@ -347,6 +347,32 @@ func TestHandler_BearerPrefixRoutesAnthropic(t *testing.T) {
 	}
 }
 
+func TestBuildTargetURL(t *testing.T) {
+	cases := []struct {
+		providerURL string
+		requestURI  string
+		want        string
+	}{
+		// Provider base has no path → full requestURI appended as-is
+		{"https://api.openai.com", "/v1/chat/completions", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.anthropic.com", "/v1/chat/completions", "https://api.anthropic.com/v1/chat/completions"},
+		// Provider base already includes a version path → strip /v1 from requestURI
+		{"https://api.groq.com/openai/v1", "/v1/chat/completions", "https://api.groq.com/openai/v1/chat/completions"},
+		{"https://api.x.ai/v1", "/v1/chat/completions", "https://api.x.ai/v1/chat/completions"},
+		{"https://api.mistral.ai/v1", "/v1/chat/completions", "https://api.mistral.ai/v1/chat/completions"},
+		{"https://api.together.xyz/v1", "/v1/chat/completions", "https://api.together.xyz/v1/chat/completions"},
+		{"https://integrate.api.nvidia.com/v1", "/v1/chat/completions", "https://integrate.api.nvidia.com/v1/chat/completions"},
+		{"https://api.cohere.ai/v1", "/v1/chat/completions", "https://api.cohere.ai/v1/chat/completions"},
+		{"https://generativelanguage.googleapis.com/v1beta/openai", "/v1/chat/completions", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
+	}
+	for _, tc := range cases {
+		got := buildTargetURL(tc.providerURL, tc.requestURI)
+		if got != tc.want {
+			t.Errorf("buildTargetURL(%q, %q)\n  got  %q\n  want %q", tc.providerURL, tc.requestURI, got, tc.want)
+		}
+	}
+}
+
 func TestHandler_RoutesAdditionalProviders(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -384,6 +410,51 @@ func TestHandler_RoutesAdditionalProviders(t *testing.T) {
 			if evt.Provider != tc.provider {
 				t.Errorf("Provider = %q, want %q", evt.Provider, tc.provider)
 			}
+		})
+	}
+}
+
+func TestHandler_UpstreamAlwaysReceivesBearerPrefix(t *testing.T) {
+	cases := []struct {
+		name     string
+		authSent string
+		wantAuth string
+	}{
+		{"bare openai key gets Bearer", "sk-test-key", "Bearer sk-test-key"},
+		{"Bearer openai key preserved", "Bearer sk-test-key", "Bearer sk-test-key"},
+		{"bare groq key gets Bearer", "gsk_testkey", "Bearer gsk_testkey"},
+		{"Bearer groq key preserved", "Bearer gsk_testkey", "Bearer gsk_testkey"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotAuth string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAuth = r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(llmResponse))
+			}))
+			defer upstream.Close()
+
+			em := newMockEmitter()
+			h := newHandler(t, testConfig(), em)
+			h.providerURLs["openai"] = upstream.URL
+			h.providerURLs["groq"] = upstream.URL
+
+			srv := httptest.NewServer(h)
+			defer srv.Close()
+
+			resp := doPost(t, srv.URL+"/v1/chat/completions", tc.authSent, `{"model":"gpt-4","messages":[]}`)
+			resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+			}
+			if gotAuth != tc.wantAuth {
+				t.Errorf("upstream Authorization = %q, want %q", gotAuth, tc.wantAuth)
+			}
+			em.next(time.Second)
 		})
 	}
 }
