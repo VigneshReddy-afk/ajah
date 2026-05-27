@@ -1,16 +1,21 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   IconLayoutDashboard,
   IconActivity,
   IconBell,
   IconSettings,
+  IconGitBranch,
 } from '@tabler/icons-react'
 import { format } from 'date-fns'
+import { fetchJSON } from '../api/client'
+import type { SessionsResponse } from '../api/types'
 
 const nav = [
   { path: '/overview', label: 'Overview', Icon: IconLayoutDashboard },
   { path: '/traces',   label: 'Traces',   Icon: IconActivity },
+  { path: '/sessions', label: 'Sessions', Icon: IconGitBranch },
   { path: '/alerts',   label: 'Alerts',   Icon: IconBell },
   { path: '/settings', label: 'Settings', Icon: IconSettings },
 ]
@@ -18,6 +23,7 @@ const nav = [
 const PAGE_META: Record<string, { title: string; badge?: string }> = {
   '/overview': { title: 'Overview',  badge: 'Today' },
   '/traces':   { title: 'Traces',    badge: 'Live feed' },
+  '/sessions': { title: 'Sessions' },
   '/alerts':   { title: 'Alerts' },
   '/settings': { title: 'Settings' },
 }
@@ -26,6 +32,16 @@ export default function Layout() {
   const location = useLocation()
   const [hovered, setHovered] = useState<string | null>(null)
   const meta = PAGE_META[location.pathname] ?? { title: 'Dashboard' }
+
+  const { data: sessionsData } = useQuery<SessionsResponse>({
+    queryKey: ['sessions'],
+    queryFn: () => fetchJSON<SessionsResponse>('/sessions'),
+    staleTime: 30_000,
+  })
+  const todayUTC = new Date().toISOString().slice(0, 10)
+  const sessionsToday = (sessionsData?.sessions ?? []).filter(s =>
+    s.start_time.startsWith(todayUTC)
+  ).length
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--color-background-tertiary)' }}>
@@ -85,6 +101,19 @@ export default function Layout() {
             >
               <Icon size={15} strokeWidth={1.75} />
               {label}
+              {path === '/sessions' && sessionsToday > 0 && (
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: 10, fontWeight: 600,
+                  color: '#185FA5',
+                  background: 'rgba(24,95,165,0.15)',
+                  borderRadius: 10,
+                  padding: '1px 6px',
+                  lineHeight: 1.5,
+                }}>
+                  {sessionsToday}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
