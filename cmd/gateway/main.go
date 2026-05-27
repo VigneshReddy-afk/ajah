@@ -96,7 +96,7 @@ func run() error {
 	engine := attribution.New(rdb, logger)
 
 	// 8. Scorer HTTP client (best-effort; never fails the main pipeline) --------
-	scorerClient := &http.Client{Timeout: 3 * time.Second}
+	scorerClient := &http.Client{Timeout: 10 * time.Second}
 
 	// 9. Event emitter ---------------------------------------------------------
 	const dailyKeyTTL = 90 * 24 * time.Hour
@@ -127,7 +127,7 @@ func run() error {
 		// Step 3: quality scoring (best-effort; only for successful responses)
 		qualityScore := 0.0
 		if event.StatusCode == http.StatusOK {
-			scoreCtx, scoreCancel := context.WithTimeout(ctx, 3*time.Second)
+			scoreCtx, scoreCancel := context.WithTimeout(ctx, 10*time.Second)
 			qualityScore = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, logger)
 			scoreCancel()
 		}
