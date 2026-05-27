@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,34 +18,150 @@ import (
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
 	"github.com/ajah/core/internal/proxy"
+	"github.com/ajah/core/internal/sessions"
+	"github.com/ajah/core/internal/storage"
 	"github.com/redis/go-redis/v9"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap"
 )
 
-// TestGatewayIntegration exercises the full request path:
-//
-//	test client → gateway handler → mock OpenAI → async attribution → Redis
-func TestGatewayIntegration(t *testing.T) {
-	// ── Redis ────────────────────────────────────────────────────────────────
+// ── ClickHouse shared container ───────────────────────────────────────────────
+// Started once for the whole integration test binary by TestMain.
+
+var chWriter *storage.Writer
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+
+	ctr, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        "clickhouse/clickhouse-server:24.3-alpine",
+			ExposedPorts: []string{"9000/tcp", "8123/tcp"},
+			Env: map[string]string{
+				"CLICKHOUSE_USER":     "default",
+				"CLICKHOUSE_PASSWORD": "ajahtest",
+				"CLICKHOUSE_DB":       "default",
+			},
+			WaitingFor: wait.ForHTTP("/ping").
+				WithPort("8123/tcp").
+				WithStatusCodeMatcher(func(status int) bool { return status == 200 }).
+				WithStartupTimeout(60 * time.Second),
+		},
+		Started: true,
+	})
+	if err != nil {
+		log.Fatalf("start clickhouse container: %v", err)
+	}
+	defer func() { _ = ctr.Terminate(ctx) }()
+
+	host, err := ctr.Host(ctx)
+	if err != nil {
+		log.Fatalf("get container host: %v", err)
+	}
+	port, err := ctr.MappedPort(ctx, "9000")
+	if err != nil {
+		log.Fatalf("get container port: %v", err)
+	}
+	dsn := fmt.Sprintf("clickhouse://default:ajahtest@%s:%s/default", host, port.Port())
+
+	chWriter, err = storage.New(dsn, zap.NewNop())
+	if err != nil {
+		log.Fatalf("storage.New: %v", err)
+	}
+	defer func() { _ = chWriter.Close() }()
+
+	if err := chWriter.CreateTable(ctx); err != nil {
+		log.Fatalf("CreateTable: %v", err)
+	}
+	if err := chWriter.CreateSessionTable(ctx); err != nil {
+		log.Fatalf("CreateSessionTable: %v", err)
+	}
+	if err := chWriter.MigrateTable(ctx); err != nil {
+		log.Fatalf("MigrateTable: %v", err)
+	}
+
+	os.Exit(m.Run())
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+func redisClient(t *testing.T) *redis.Client {
+	t.Helper()
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
 		redisURL = "redis://localhost:6379"
 	}
-
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
 		t.Fatalf("invalid REDIS_URL %q: %v", redisURL, err)
 	}
-
 	rdb := redis.NewClient(opts)
 	t.Cleanup(func() { _ = rdb.Close() })
-
-	ctx := context.Background()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		t.Fatalf("Redis not available at %q: %v — run with a live Redis or set REDIS_URL", redisURL, err)
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		t.Fatalf("Redis not available at %q: %v", redisURL, err)
 	}
+	return rdb
+}
 
-	// Clean up the specific keys this test will write so reruns are idempotent.
+func mockProvider() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(
+			`{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`,
+		))
+	}))
+}
+
+// sendRequest posts a chat completion to gatewaySrv with the given session and step headers.
+func sendRequest(t *testing.T, gatewaySrv *httptest.Server, sessionID, stepName string) {
+	t.Helper()
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`
+	req, err := http.NewRequest(http.MethodPost,
+		gatewaySrv.URL+"/v1/chat/completions",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "sk-test123")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", "integration-user")
+	req.Header.Set("X-Feature-Name", "integration-feature")
+	req.Header.Set("X-Session-ID", sessionID)
+	req.Header.Set("X-Agent-Step", stepName)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("step %q: status = %d, want 200", stepName, resp.StatusCode)
+	}
+}
+
+// findSession returns the session record matching sessionID from the list, or nil.
+func findSession(recs []storage.SessionRecord, sessionID string) *storage.SessionRecord {
+	for i := range recs {
+		if recs[i].SessionID == sessionID {
+			return &recs[i]
+		}
+	}
+	return nil
+}
+
+// ── TestGatewayIntegration ────────────────────────────────────────────────────
+// Exercises the full request path:
+//
+//	test client → gateway handler → mock OpenAI → async attribution → Redis
+
+func TestGatewayIntegration(t *testing.T) {
+	rdb := redisClient(t)
+	ctx := context.Background()
+
+	// Clean up cost keys this test will write so reruns are idempotent.
 	today := time.Now().UTC().Format("2006-01-02")
 	userKey := fmt.Sprintf("cost:user:user_1:daily:%s", today)
 	featureKey := fmt.Sprintf("cost:feature:chat:daily:%s", today)
@@ -52,29 +169,23 @@ func TestGatewayIntegration(t *testing.T) {
 		_ = rdb.Del(context.Background(), userKey, featureKey).Err()
 	})
 
-	// ── Mock OpenAI provider ─────────────────────────────────────────────────
-	mockOpenAI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(
-			`{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`,
-		))
-	}))
-	t.Cleanup(mockOpenAI.Close)
+	mock := mockProvider()
+	t.Cleanup(mock.Close)
 
-	// ── Full stack assembly ──────────────────────────────────────────────────
 	cfg := &config.Config{
 		Port:                   "0",
-		RedisURL:               redisURL,
+		RedisURL:               os.Getenv("REDIS_URL"),
 		DatabaseURL:            "postgres://localhost:5432/observatory",
 		LogLevel:               "info",
 		MaxRequestBodyBytes:    10 * 1024 * 1024,
 		AsyncWorkerCount:       2,
 		ProviderTimeoutSeconds: 10,
 	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
 
 	logger := zap.NewNop()
-
 	engine := attribution.New(rdb, logger)
 
 	var (
@@ -93,24 +204,17 @@ func TestGatewayIntegration(t *testing.T) {
 
 	emitter := events.New(cfg.AsyncWorkerCount*10, cfg.AsyncWorkerCount, logger, processFn)
 	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
-	t.Cleanup(func() {
-		cancelEmitter()
-		emitter.Stop()
-	})
+	t.Cleanup(func() { cancelEmitter(); emitter.Stop() })
 	emitter.Start(emitterCtx)
 
 	h := proxy.New(cfg, emitter, logger)
-	h.SetProviderURL("openai", mockOpenAI.URL)
-
+	h.SetProviderURL("openai", mock.URL)
 	gatewaySrv := httptest.NewServer(h)
 	t.Cleanup(gatewaySrv.Close)
 
-	// ── Send request ─────────────────────────────────────────────────────────
-	reqBody := `{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`
-	req, err := http.NewRequest(
-		http.MethodPost,
+	req, err := http.NewRequest(http.MethodPost,
 		gatewaySrv.URL+"/v1/chat/completions",
-		strings.NewReader(reqBody),
+		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}]}`),
 	)
 	if err != nil {
 		t.Fatalf("building request: %v", err)
@@ -128,12 +232,10 @@ func TestGatewayIntegration(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	// ── Assertions ───────────────────────────────────────────────────────────
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("response status = %d, want 200", resp.StatusCode)
 	}
 
-	// Allow the async attribution pipeline to process the event.
 	time.Sleep(100 * time.Millisecond)
 
 	// gpt-4o: 10 * $0.000005 + 5 * $0.000015 = $0.000125
@@ -156,7 +258,6 @@ func TestGatewayIntegration(t *testing.T) {
 	t.Logf("cost:user:user_1  = $%.8f", userCost)
 	t.Logf("cost:feature:chat = $%.8f", featureCost)
 
-	// Verify agent step metadata was forwarded through the event pipeline.
 	capturedMu.Lock()
 	evt := captured
 	ok := capturedOK
@@ -173,4 +274,255 @@ func TestGatewayIntegration(t *testing.T) {
 	}
 	t.Logf("StepName  = %q", evt.StepName)
 	t.Logf("SessionID = %q", evt.SessionID)
+}
+
+// ── TestAgentSessionIntegration ───────────────────────────────────────────────
+// Sends 4 requests sharing one session ID, closes the session explicitly, then
+// verifies the session is persisted to ClickHouse with correct aggregates.
+
+func TestAgentSessionIntegration(t *testing.T) {
+	const sessionID = "test-session-001"
+
+	rdb := redisClient(t)
+	ctx := context.Background()
+
+	// Clean up Redis session keys on exit (also deleted by CloseSession on success).
+	t.Cleanup(func() {
+		_ = rdb.Del(context.Background(),
+			"session:"+sessionID+":meta",
+			"session:"+sessionID+":traces",
+		).Err()
+	})
+
+	mock := mockProvider()
+	t.Cleanup(mock.Close)
+
+	cfg := &config.Config{
+		Port:                   "0",
+		RedisURL:               os.Getenv("REDIS_URL"),
+		DatabaseURL:            "postgres://localhost:5432/observatory",
+		LogLevel:               "info",
+		MaxRequestBodyBytes:    10 * 1024 * 1024,
+		AsyncWorkerCount:       2,
+		ProviderTimeoutSeconds: 10,
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
+
+	logger := zap.NewNop()
+	engine := attribution.New(rdb, logger)
+	acc := sessions.New(rdb, chWriter, logger)
+
+	processFn := func(ctx context.Context, event events.RequestEvent) error {
+		costRecord, err := engine.Process(ctx, event)
+		if event.SessionID != "" {
+			record := storage.TraceRecord{
+				TraceID:      event.RequestID,
+				RequestID:    event.RequestID,
+				UserID:       event.UserID,
+				SessionID:    event.SessionID,
+				FeatureName:  event.FeatureName,
+				AgentStep:    event.AgentStep,
+				StepName:     event.StepName,
+				ParentStepID: event.ParentStepID,
+				ToolName:     event.ToolName,
+				Provider:     event.Provider,
+				Model:        event.Model,
+				InputTokens:  event.InputTokens,
+				OutputTokens: event.OutputTokens,
+				CostUSD:      costRecord.CostUSD,
+				LatencyMs:    event.LatencyMs,
+				StatusCode:   event.StatusCode,
+				Timestamp:    event.Timestamp,
+			}
+			if addErr := acc.AddTrace(ctx, event.SessionID, record); addErr != nil {
+				t.Logf("AddTrace warning: %v", addErr)
+			}
+		}
+		return err
+	}
+
+	emitter := events.New(cfg.AsyncWorkerCount*10, cfg.AsyncWorkerCount, logger, processFn)
+	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancelEmitter(); emitter.Stop() })
+	emitter.Start(emitterCtx)
+
+	h := proxy.New(cfg, emitter, logger)
+	h.SetProviderURL("openai", mock.URL)
+	gatewaySrv := httptest.NewServer(h)
+	t.Cleanup(gatewaySrv.Close)
+
+	// ── Send 4 sequential steps ───────────────────────────────────────────────
+	steps := []string{
+		"step-1-planner",
+		"step-2-researcher",
+		"step-3-synthesizer",
+		"step-4-reviewer",
+	}
+	for _, step := range steps {
+		sendRequest(t, gatewaySrv, sessionID, step)
+	}
+
+	// Allow the async pipeline to finish writing all 4 traces to the session buffer.
+	time.Sleep(300 * time.Millisecond)
+
+	// ── Close session and flush to ClickHouse ─────────────────────────────────
+	summary, err := acc.CloseSession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("CloseSession: %v", err)
+	}
+
+	if summary.StepCount < 4 {
+		t.Errorf("summary.StepCount = %d, want >= 4", summary.StepCount)
+	}
+	if summary.TotalCost <= 0 {
+		t.Errorf("summary.TotalCost = %f, want > 0", summary.TotalCost)
+	}
+	t.Logf("summary: steps=%d cost=$%.8f tokens=%d",
+		summary.StepCount, summary.TotalCost, summary.TotalTokens)
+
+	// ── Verify session is readable from ClickHouse ────────────────────────────
+	// (equivalent to querying GET /sessions on the live gateway)
+	recs, err := chWriter.QueryRecentSessions(ctx, 50)
+	if err != nil {
+		t.Fatalf("QueryRecentSessions: %v", err)
+	}
+
+	sess := findSession(recs, sessionID)
+	if sess == nil {
+		t.Fatalf("session %q not found in ClickHouse sessions list (got %d records)", sessionID, len(recs))
+	}
+
+	if sess.StepCount < 4 {
+		t.Errorf("ClickHouse step_count = %d, want >= 4", sess.StepCount)
+	}
+	if sess.TotalCost <= 0 {
+		t.Errorf("ClickHouse total_cost = %f, want > 0", sess.TotalCost)
+	}
+	if sess.Status != "completed" {
+		t.Errorf("ClickHouse status = %q, want completed", sess.Status)
+	}
+	t.Logf("ClickHouse session: steps=%d cost=$%.8f status=%s",
+		sess.StepCount, sess.TotalCost, sess.Status)
+}
+
+// ── TestSessionReaping ────────────────────────────────────────────────────────
+// Verifies the background reaper closes idle sessions and persists them to
+// ClickHouse once sessionTimeout elapses.
+
+func TestSessionReaping(t *testing.T) {
+	const sessionID = "reap-test"
+
+	rdb := redisClient(t)
+	ctx := context.Background()
+
+	// Clean up Redis session keys on exit.
+	t.Cleanup(func() {
+		_ = rdb.Del(context.Background(),
+			"session:"+sessionID+":meta",
+			"session:"+sessionID+":traces",
+		).Err()
+	})
+
+	mock := mockProvider()
+	t.Cleanup(mock.Close)
+
+	cfg := &config.Config{
+		Port:                   "0",
+		RedisURL:               os.Getenv("REDIS_URL"),
+		DatabaseURL:            "postgres://localhost:5432/observatory",
+		LogLevel:               "info",
+		MaxRequestBodyBytes:    10 * 1024 * 1024,
+		AsyncWorkerCount:       2,
+		ProviderTimeoutSeconds: 10,
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
+
+	logger := zap.NewNop()
+	engine := attribution.New(rdb, logger)
+	acc := sessions.New(rdb, chWriter, logger)
+	acc.SetSessionTimeout(50 * time.Millisecond)
+	acc.SetReaperInterval(30 * time.Millisecond)
+
+	processFn := func(ctx context.Context, event events.RequestEvent) error {
+		costRecord, err := engine.Process(ctx, event)
+		if event.SessionID != "" {
+			record := storage.TraceRecord{
+				TraceID:      event.RequestID,
+				RequestID:    event.RequestID,
+				UserID:       event.UserID,
+				SessionID:    event.SessionID,
+				FeatureName:  event.FeatureName,
+				AgentStep:    event.AgentStep,
+				StepName:     event.StepName,
+				ParentStepID: event.ParentStepID,
+				ToolName:     event.ToolName,
+				Provider:     event.Provider,
+				Model:        event.Model,
+				InputTokens:  event.InputTokens,
+				OutputTokens: event.OutputTokens,
+				CostUSD:      costRecord.CostUSD,
+				LatencyMs:    event.LatencyMs,
+				StatusCode:   event.StatusCode,
+				Timestamp:    event.Timestamp,
+			}
+			if addErr := acc.AddTrace(ctx, event.SessionID, record); addErr != nil {
+				t.Logf("AddTrace warning: %v", addErr)
+			}
+		}
+		return err
+	}
+
+	emitter := events.New(cfg.AsyncWorkerCount*10, cfg.AsyncWorkerCount, logger, processFn)
+	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancelEmitter(); emitter.Stop() })
+	emitter.Start(emitterCtx)
+
+	h := proxy.New(cfg, emitter, logger)
+	h.SetProviderURL("openai", mock.URL)
+	gatewaySrv := httptest.NewServer(h)
+	t.Cleanup(gatewaySrv.Close)
+
+	// ── Send 2 requests ───────────────────────────────────────────────────────
+	sendRequest(t, gatewaySrv, sessionID, "step-1")
+	sendRequest(t, gatewaySrv, sessionID, "step-2")
+
+	// Allow the async pipeline to finish writing both traces.
+	time.Sleep(200 * time.Millisecond)
+
+	// ── Start reaper and wait for it to close the idle session ────────────────
+	reaperCtx, cancelReaper := context.WithCancel(context.Background())
+	t.Cleanup(cancelReaper)
+	acc.StartReaper(reaperCtx)
+
+	// Session expires after 50ms; reaper ticks every 30ms.
+	// Two ticks guarantee the session is reaped even if the first tick fires
+	// just before the timeout elapses.
+	time.Sleep(250 * time.Millisecond)
+
+	// ── Verify session appears in ClickHouse as completed ─────────────────────
+	recs, err := chWriter.QueryRecentSessions(ctx, 50)
+	if err != nil {
+		t.Fatalf("QueryRecentSessions: %v", err)
+	}
+
+	sess := findSession(recs, sessionID)
+	if sess == nil {
+		t.Fatalf("session %q not found in ClickHouse after reaping (got %d records)", sessionID, len(recs))
+	}
+
+	if sess.Status != "completed" {
+		t.Errorf("status = %q, want completed", sess.Status)
+	}
+	if sess.StepCount < 2 {
+		t.Errorf("step_count = %d, want >= 2", sess.StepCount)
+	}
+	if sess.TotalCost <= 0 {
+		t.Errorf("total_cost = %f, want > 0", sess.TotalCost)
+	}
+	t.Logf("reaped session: steps=%d cost=$%.8f status=%s",
+		sess.StepCount, sess.TotalCost, sess.Status)
 }

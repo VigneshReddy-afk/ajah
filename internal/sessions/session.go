@@ -60,6 +60,11 @@ func (a *Accumulator) SetSessionTimeout(d time.Duration) {
 	a.sessionTimeout = d
 }
 
+// SetReaperInterval overrides the default 60-second reaper tick interval.
+func (a *Accumulator) SetReaperInterval(d time.Duration) {
+	a.reaperInterval = d
+}
+
 func metaKey(id string) string   { return "session:" + id + ":meta" }
 func tracesKey(id string) string { return "session:" + id + ":traces" }
 
