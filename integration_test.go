@@ -4,6 +4,7 @@ package integration_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/ajah/core/internal/attribution"
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
+	"github.com/ajah/core/internal/flagging"
 	"github.com/ajah/core/internal/proxy"
 	"github.com/ajah/core/internal/sessions"
 	"github.com/ajah/core/internal/storage"
@@ -525,4 +527,201 @@ func TestSessionReaping(t *testing.T) {
 	}
 	t.Logf("reaped session: steps=%d cost=$%.8f status=%s",
 		sess.StepCount, sess.TotalCost, sess.Status)
+}
+
+// ── TestHallucinationFlagging ─────────────────────────────────────────────────
+// Sends a request through the full pipeline with a mock scorer configured to
+// return high hallucination (0.85) / low grounding (0.20), then verifies:
+//   - The trace in ClickHouse has risk_level "high" and ShouldWarn true
+//   - GET /warnings (via Redis) returns the warning with the correct request ID
+//   - The warnings:daily counter in Redis was incremented
+
+func TestHallucinationFlagging(t *testing.T) {
+	const reqID = "flagging-req-001"
+
+	// 1. Mock scorer: always returns high hallucination / low grounding.
+	scorer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"hallucination_score":0.85,"factual_consistency_score":0.20,"overall_quality_score":0.30}`))
+	}))
+	t.Cleanup(scorer.Close)
+
+	rdb := redisClient(t)
+	ctx := context.Background()
+
+	today := time.Now().UTC().Format("2006-01-02")
+	warnCountKey := fmt.Sprintf("warnings:daily:%s", today)
+
+	// Record list length before the test so we can detect our new entry even
+	// if the list already has entries from earlier runs.
+	initialLen, _ := rdb.LLen(ctx, "warnings:high:list").Result()
+
+	t.Cleanup(func() {
+		_ = rdb.Del(context.Background(), "flag:"+reqID).Err()
+		// Trim the one entry we pushed rather than wiping the whole list.
+		rdb.LTrim(context.Background(), "warnings:high:list", 0, initialLen-1)
+	})
+
+	mock := mockProvider()
+	t.Cleanup(mock.Close)
+
+	cfg := &config.Config{
+		Port:                   "0",
+		RedisURL:               os.Getenv("REDIS_URL"),
+		LogLevel:               "info",
+		MaxRequestBodyBytes:    10 * 1024 * 1024,
+		AsyncWorkerCount:       2,
+		ProviderTimeoutSeconds: 10,
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
+
+	logger := zap.NewNop()
+	flgr := flagging.New(scorer.URL, logger)
+	const dailyKeyTTL = 90 * 24 * time.Hour
+
+	processFn := func(ctx context.Context, event events.RequestEvent) error {
+		if event.StatusCode != http.StatusOK {
+			return nil
+		}
+
+		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
+		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, 0.0)
+		flagCancel()
+
+		// Mirror exactly what the real processFn does.
+		if riskFlag.ShouldWarn {
+			day := event.Timestamp.UTC().Format("2006-01-02")
+			key := fmt.Sprintf("warnings:daily:%s", day)
+			if err := rdb.Incr(ctx, key).Err(); err == nil {
+				rdb.Expire(ctx, key, dailyKeyTTL)
+			}
+		}
+		if riskFlag.RiskLevel == "high" {
+			item, _ := json.Marshal(riskFlag)
+			rdb.LPush(ctx, "warnings:high:list", string(item))
+			rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+		}
+
+		record := storage.TraceRecord{
+			TraceID:           event.RequestID,
+			RequestID:         event.RequestID,
+			UserID:            event.UserID,
+			SessionID:         event.SessionID,
+			FeatureName:       event.FeatureName,
+			Provider:          event.Provider,
+			Model:             event.Model,
+			InputTokens:       event.InputTokens,
+			OutputTokens:      event.OutputTokens,
+			LatencyMs:         event.LatencyMs,
+			StatusCode:        event.StatusCode,
+			Timestamp:         event.Timestamp,
+			HallucinationRisk: riskFlag.HallucinationRisk,
+			GroundingScore:    riskFlag.GroundingScore,
+			RiskLevel:         riskFlag.RiskLevel,
+			ShouldWarn:        riskFlag.ShouldWarn,
+		}
+		return chWriter.Write(ctx, record)
+	}
+
+	emitter := events.New(cfg.AsyncWorkerCount*10, cfg.AsyncWorkerCount, logger, processFn)
+	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancelEmitter(); emitter.Stop() })
+	emitter.Start(emitterCtx)
+
+	h := proxy.New(cfg, emitter, logger)
+	h.SetProviderURL("openai", mock.URL)
+	gatewaySrv := httptest.NewServer(h)
+	t.Cleanup(gatewaySrv.Close)
+
+	// 2. Send a request with a known X-Request-ID so we can look it up later.
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"What is the capital of France?"}]}`
+	req, err := http.NewRequest(http.MethodPost,
+		gatewaySrv.URL+"/v1/chat/completions",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "sk-test123")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", reqID)
+	req.Header.Set("X-User-ID", "flagging-user")
+	req.Header.Set("X-Feature-Name", "flagging-feature")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("gateway status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Ajah-Request-ID"); got != reqID {
+		t.Errorf("X-Ajah-Request-ID = %q, want %q", got, reqID)
+	}
+
+	// 3. Wait for async processing.
+	time.Sleep(1 * time.Second)
+
+	// ── Assert 1: ClickHouse trace has risk_level "high" ─────────────────────
+	traces, err := chWriter.QueryRecent(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryRecent: %v", err)
+	}
+	var trace *storage.TraceRecord
+	for i := range traces {
+		if traces[i].RequestID == reqID {
+			trace = &traces[i]
+			break
+		}
+	}
+	if trace == nil {
+		t.Fatalf("trace with request_id %q not found in ClickHouse (%d records returned)", reqID, len(traces))
+	}
+	if trace.RiskLevel != "high" {
+		t.Errorf("RiskLevel = %q, want high", trace.RiskLevel)
+	}
+	if !trace.ShouldWarn {
+		t.Error("ShouldWarn = false, want true")
+	}
+	if trace.HallucinationRisk < 0.80 {
+		t.Errorf("HallucinationRisk = %.4f, want >= 0.80", trace.HallucinationRisk)
+	}
+	if trace.GroundingScore > 0.25 {
+		t.Errorf("GroundingScore = %.4f, want <= 0.25", trace.GroundingScore)
+	}
+	t.Logf("ClickHouse trace: risk_level=%s hallucination=%.2f grounding=%.2f should_warn=%v",
+		trace.RiskLevel, trace.HallucinationRisk, trace.GroundingScore, trace.ShouldWarn)
+
+	// ── Assert 2: GET /warnings — list has the new entry with our request ID ──
+	items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+	if err != nil {
+		t.Fatalf("read warnings:high:list: %v", err)
+	}
+	if int64(len(items)) <= initialLen {
+		t.Errorf("warnings:high:list length = %d, want > %d (no new entry added)", len(items), initialLen)
+	}
+	found := false
+	for _, item := range items {
+		if strings.Contains(item, reqID) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("request_id %q not found in warnings:high:list", reqID)
+	}
+	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
+
+	// ── Assert 3: warnings:daily counter incremented ──────────────────────────
+	count, err := rdb.Get(ctx, warnCountKey).Int64()
+	if err != nil {
+		t.Fatalf("read %q: %v", warnCountKey, err)
+	}
+	if count < 1 {
+		t.Errorf("warnings:daily:%s = %d, want >= 1", today, count)
+	}
+	t.Logf("warnings:daily:%s = %d", today, count)
 }
