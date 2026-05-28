@@ -36,6 +36,46 @@ docker-compose up -d
 
 ---
 
+## Your first request
+
+Replace your existing OpenAI base URL with Ajah:
+
+```python
+import openai
+
+client = openai.OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="your-openai-key"  # your real key
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello"}],
+    extra_headers={
+        "X-User-ID": "user_1",
+        "X-Feature-Name": "chat"
+    }
+)
+```
+
+Works with any provider — just use the matching key prefix and Ajah routes automatically.
+Then open http://localhost:3000 to see your cost, quality score, and trace.
+
+```javascript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+    baseURL: 'http://localhost:8080/v1',
+    apiKey: process.env.OPENAI_API_KEY,
+    defaultHeaders: {
+        'X-User-ID': 'user_1',
+        'X-Feature-Name': 'chat'
+    }
+});
+```
+
+---
+
 ## How It Works
 
 1. Point your app at `http://localhost:8080` instead of the LLM provider directly
