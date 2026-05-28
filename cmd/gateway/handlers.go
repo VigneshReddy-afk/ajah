@@ -61,6 +61,7 @@ type traceResponse struct {
 type warningItem struct {
 	RequestID         string    `json:"request_id"`
 	SessionID         string    `json:"session_id"`
+	FeatureName       string    `json:"feature_name"`
 	RiskLevel         string    `json:"risk_level"`
 	HallucinationRisk float64   `json:"hallucination_risk"`
 	GroundingScore    float64   `json:"grounding_score"`

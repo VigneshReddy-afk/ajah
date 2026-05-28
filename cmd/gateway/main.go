@@ -169,6 +169,7 @@ func run() error {
 				wi := warningItem{
 					RequestID:         riskFlag.RequestID,
 					SessionID:         riskFlag.SessionID,
+					FeatureName:       event.FeatureName,
 					RiskLevel:         riskFlag.RiskLevel,
 					HallucinationRisk: riskFlag.HallucinationRisk,
 					GroundingScore:    riskFlag.GroundingScore,

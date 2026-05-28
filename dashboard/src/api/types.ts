@@ -59,10 +59,27 @@ export interface Alert {
   actual: number
 }
 
+export interface WarningItem {
+  request_id: string
+  session_id: string
+  feature_name: string
+  risk_level: string
+  hallucination_risk: number
+  grounding_score: number
+  reasons: string[]
+  timestamp: string
+}
+
+export interface WarningsResponse {
+  warnings: WarningItem[]
+  total_today: number
+}
+
 export interface FeatureSetting {
   feature_name: string
   cost_alert_threshold_usd: number
   pii_masking_enabled: boolean
+  webhook_url: string
 }
 
 export interface ProviderKey {

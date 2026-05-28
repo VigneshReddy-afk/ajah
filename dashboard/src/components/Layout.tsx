@@ -4,26 +4,29 @@ import { useQuery } from '@tanstack/react-query'
 import {
   IconLayoutDashboard,
   IconActivity,
+  IconAlertHexagon,
   IconBell,
   IconSettings,
   IconGitBranch,
 } from '@tabler/icons-react'
 import { format } from 'date-fns'
 import { fetchJSON } from '../api/client'
-import type { SessionsResponse } from '../api/types'
+import type { SessionsResponse, WarningsResponse } from '../api/types'
 
 const nav = [
-  { path: '/overview', label: 'Overview', Icon: IconLayoutDashboard },
-  { path: '/traces',   label: 'Traces',   Icon: IconActivity },
-  { path: '/sessions', label: 'Sessions', Icon: IconGitBranch },
-  { path: '/alerts',   label: 'Alerts',   Icon: IconBell },
-  { path: '/settings', label: 'Settings', Icon: IconSettings },
+  { path: '/overview',  label: 'Overview',  Icon: IconLayoutDashboard },
+  { path: '/traces',    label: 'Traces',    Icon: IconActivity },
+  { path: '/sessions',  label: 'Sessions',  Icon: IconGitBranch },
+  { path: '/warnings',  label: 'Warnings',  Icon: IconAlertHexagon },
+  { path: '/alerts',    label: 'Alerts',    Icon: IconBell },
+  { path: '/settings',  label: 'Settings',  Icon: IconSettings },
 ]
 
 const PAGE_META: Record<string, { title: string; badge?: string }> = {
   '/overview': { title: 'Overview',  badge: 'Today' },
   '/traces':   { title: 'Traces',    badge: 'Live feed' },
   '/sessions': { title: 'Sessions' },
+  '/warnings': { title: 'Warnings' },
   '/alerts':   { title: 'Alerts' },
   '/settings': { title: 'Settings' },
 }
@@ -42,6 +45,13 @@ export default function Layout() {
   const sessionsToday = (sessionsData?.sessions ?? []).filter(s =>
     s.start_time.startsWith(todayUTC)
   ).length
+
+  const { data: warningsData } = useQuery<WarningsResponse>({
+    queryKey: ['warnings'],
+    queryFn: () => fetchJSON<WarningsResponse>('/warnings'),
+    refetchInterval: 10_000,
+  })
+  const highRiskCount = (warningsData?.warnings ?? []).length
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--color-background-tertiary)' }}>
@@ -112,6 +122,19 @@ export default function Layout() {
                   lineHeight: 1.5,
                 }}>
                   {sessionsToday}
+                </span>
+              )}
+              {path === '/warnings' && highRiskCount > 0 && (
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: 10, fontWeight: 600,
+                  color: '#A32D2D',
+                  background: 'rgba(163,45,45,0.15)',
+                  borderRadius: 10,
+                  padding: '1px 6px',
+                  lineHeight: 1.5,
+                }}>
+                  {highRiskCount}
                 </span>
               )}
             </NavLink>

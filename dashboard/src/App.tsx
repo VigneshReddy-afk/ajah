@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import Overview from './pages/Overview'
 import Traces from './pages/Traces'
 import Sessions from './pages/Sessions'
+import Warnings from './pages/Warnings'
 import Alerts from './pages/Alerts'
 import Settings from './pages/Settings'
 
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="overview" element={<Overview />} />
             <Route path="traces" element={<Traces />} />
             <Route path="sessions" element={<Sessions />} />
+            <Route path="warnings" element={<Warnings />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="settings" element={<Settings />} />
           </Route>
