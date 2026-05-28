@@ -553,6 +553,14 @@ func callScorer(ctx context.Context, client *http.Client, baseURL string, event 
 		logger.Warn("scorer: read response failed", zap.Error(err))
 		return 0
 	}
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("scorer: non-200 status",
+			zap.String("request_id", event.RequestID),
+			zap.Int("status_code", resp.StatusCode),
+			zap.String("body", string(rawBody)),
+		)
+		return 0
+	}
 	logger.Debug("scorer: raw response",
 		zap.String("request_id", event.RequestID),
 		zap.Int("status_code", resp.StatusCode),
@@ -564,7 +572,7 @@ func callScorer(ctx context.Context, client *http.Client, baseURL string, event 
 		logger.Warn("scorer: decode response failed", zap.String("body", string(rawBody)), zap.Error(err))
 		return 0
 	}
-	logger.Debug("scorer: quality score extracted",
+	logger.Info("scorer: quality score extracted",
 		zap.String("request_id", event.RequestID),
 		zap.Float64("quality_score", outcome.OverallQualityScore),
 	)
