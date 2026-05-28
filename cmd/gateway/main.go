@@ -95,6 +95,9 @@ func run() error {
 	if err := dbStore.CreateTables(startCtx); err != nil {
 		return fmt.Errorf("create postgres tables: %w", err)
 	}
+	if err := dbStore.MigrateTables(startCtx); err != nil {
+		return fmt.Errorf("migrate postgres tables: %w", err)
+	}
 	dbStore.RefreshCache(startCtx)
 
 	// 6. PII masker ------------------------------------------------------------
@@ -108,6 +111,7 @@ func run() error {
 
 	// 8b. Risk flagger (async; never blocks the response path) -----------------
 	flagger := flagging.New(cfg.ScorerURL, logger)
+	webhookClient := &http.Client{Timeout: time.Duration(cfg.WebhookTimeoutSeconds) * time.Second}
 
 	// 9. Session accumulator ---------------------------------------------------
 	acc := sessions.New(rdb, writer, logger)
@@ -174,6 +178,24 @@ func run() error {
 				if wiJSON, marshalErr := json.Marshal(wi); marshalErr == nil {
 					rdb.LPush(ctx, "warnings:high:list", string(wiJSON))
 					rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+				}
+			}
+
+			// Store per-request flag so apps can poll GET /warnings/{requestID}.
+			fr := flagResult{
+				RequestID: riskFlag.RequestID,
+				Flagged:   riskFlag.ShouldWarn,
+				RiskLevel: riskFlag.RiskLevel,
+				Reasons:   riskFlag.Reasons,
+			}
+			if frJSON, marshalErr := json.Marshal(fr); marshalErr == nil {
+				rdb.Set(ctx, "flag:"+event.RequestID, frJSON, time.Hour)
+			}
+
+			// Webhook delivery (opt-in per feature; fire-and-forget).
+			if riskFlag.ShouldWarn && event.FeatureName != "" {
+				if webhookURL := dbStore.WebhookURLFor(event.FeatureName); webhookURL != "" {
+					go fireWebhook(webhookURL, riskFlag, webhookClient, logger)
 				}
 			}
 		}
@@ -303,6 +325,7 @@ func run() error {
 	r.Get("/sessions", sessionsHandler(writer, logger))
 	r.Get("/sessions/{sessionID}", sessionDetailHandler(writer, logger))
 	r.Get("/warnings", warningsHandler(rdb, logger))
+	r.Get("/warnings/{requestID}", warningByRequestIDHandler(rdb, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
@@ -553,4 +576,40 @@ func extractSegment(key, prefix, suffix string) string {
 		return s[:idx]
 	}
 	return s
+}
+
+// fireWebhook POSTs the RiskFlag JSON to webhookURL. It retries once on any
+// non-2xx response or network error. Always fire-and-forget — never blocks.
+func fireWebhook(webhookURL string, flag flagging.RiskFlag, client *http.Client, logger *zap.Logger) {
+	body, err := json.Marshal(flag)
+	if err != nil {
+		logger.Warn("webhook: marshal failed", zap.Error(err))
+		return
+	}
+	for attempt := range 2 {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, webhookURL, bytes.NewReader(body))
+		if err != nil {
+			logger.Warn("webhook: build request failed", zap.Error(err))
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == 0 {
+				logger.Warn("webhook: attempt failed, retrying", zap.String("url", webhookURL), zap.Error(err))
+				continue
+			}
+			logger.Warn("webhook: failed after retry", zap.String("url", webhookURL), zap.Error(err))
+			return
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return
+		}
+		if attempt == 0 {
+			logger.Warn("webhook: non-2xx, retrying", zap.String("url", webhookURL), zap.Int("status", resp.StatusCode))
+			continue
+		}
+		logger.Warn("webhook: non-2xx after retry", zap.String("url", webhookURL), zap.Int("status", resp.StatusCode))
+	}
 }

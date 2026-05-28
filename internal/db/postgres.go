@@ -16,6 +16,7 @@ type FeatureSetting struct {
 	FeatureName           string  `json:"feature_name"`
 	CostAlertThresholdUSD float64 `json:"cost_alert_threshold_usd"`
 	PIIMaskingEnabled     bool    `json:"pii_masking_enabled"`
+	WebhookURL            string  `json:"webhook_url"`
 }
 
 // ProviderKey holds an API key for a named LLM provider.
@@ -33,6 +34,7 @@ type Store struct {
 
 	mu         sync.RWMutex
 	thresholds map[string]float64
+	webhooks   map[string]string
 }
 
 // New opens a PostgreSQL connection and pings the server.
@@ -53,6 +55,7 @@ func New(dsn string, logger *zap.Logger) (*Store, error) {
 		db:         db,
 		logger:     logger,
 		thresholds: make(map[string]float64),
+		webhooks:   make(map[string]string),
 	}, nil
 }
 
@@ -64,6 +67,7 @@ func (s *Store) CreateTables(ctx context.Context) error {
 			feature_name              TEXT PRIMARY KEY,
 			cost_alert_threshold_usd  FLOAT8  NOT NULL DEFAULT 1.0,
 			pii_masking_enabled       BOOLEAN NOT NULL DEFAULT TRUE,
+			webhook_url               TEXT    NOT NULL DEFAULT '',
 			updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`); err != nil {
 		return fmt.Errorf("create feature_settings table: %w", err)
@@ -81,10 +85,21 @@ func (s *Store) CreateTables(ctx context.Context) error {
 	return nil
 }
 
+// MigrateTables adds columns introduced after the initial schema version.
+// Safe to call on any existing database.
+func (s *Store) MigrateTables(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx,
+		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS webhook_url TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return fmt.Errorf("migrate feature_settings: %w", err)
+	}
+	return nil
+}
+
 // GetSettings returns all rows from feature_settings.
 func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT feature_name, cost_alert_threshold_usd, pii_masking_enabled
+		SELECT feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url
 		FROM feature_settings ORDER BY feature_name`)
 	if err != nil {
 		return nil, fmt.Errorf("query settings: %w", err)
@@ -94,7 +109,7 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 	var out []FeatureSetting
 	for rows.Next() {
 		var f FeatureSetting
-		if err := rows.Scan(&f.FeatureName, &f.CostAlertThresholdUSD, &f.PIIMaskingEnabled); err != nil {
+		if err := rows.Scan(&f.FeatureName, &f.CostAlertThresholdUSD, &f.PIIMaskingEnabled, &f.WebhookURL); err != nil {
 			return nil, fmt.Errorf("scan setting: %w", err)
 		}
 		out = append(out, f)
@@ -105,13 +120,14 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 // UpsertSetting inserts or updates a single feature setting row.
 func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO feature_settings (feature_name, cost_alert_threshold_usd, pii_masking_enabled, updated_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO feature_settings (feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url, updated_at)
+		VALUES ($1, $2, $3, $4, NOW())
 		ON CONFLICT (feature_name) DO UPDATE SET
 			cost_alert_threshold_usd = EXCLUDED.cost_alert_threshold_usd,
 			pii_masking_enabled      = EXCLUDED.pii_masking_enabled,
+			webhook_url              = EXCLUDED.webhook_url,
 			updated_at               = NOW()`,
-		f.FeatureName, f.CostAlertThresholdUSD, f.PIIMaskingEnabled)
+		f.FeatureName, f.CostAlertThresholdUSD, f.PIIMaskingEnabled, f.WebhookURL)
 	if err != nil {
 		return fmt.Errorf("upsert setting %q: %w", f.FeatureName, err)
 	}
@@ -164,7 +180,14 @@ func (s *Store) ThresholdFor(feature string) float64 {
 	return 1.0
 }
 
-// RefreshCache reloads the in-memory threshold map from PostgreSQL.
+// WebhookURLFor returns the webhook URL configured for a feature, or "" if none.
+func (s *Store) WebhookURLFor(feature string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.webhooks[feature]
+}
+
+// RefreshCache reloads the in-memory threshold and webhook maps from PostgreSQL.
 // Safe to call from any goroutine.
 func (s *Store) RefreshCache(ctx context.Context) {
 	settings, err := s.GetSettings(ctx)
@@ -173,11 +196,16 @@ func (s *Store) RefreshCache(ctx context.Context) {
 		return
 	}
 	m := make(map[string]float64, len(settings))
+	w := make(map[string]string, len(settings))
 	for _, f := range settings {
 		m[f.FeatureName] = f.CostAlertThresholdUSD
+		if f.WebhookURL != "" {
+			w[f.FeatureName] = f.WebhookURL
+		}
 	}
 	s.mu.Lock()
 	s.thresholds = m
+	s.webhooks = w
 	s.mu.Unlock()
 }
 

@@ -17,6 +17,7 @@ const (
 	defaultAsyncWorkerCount       = 10
 	defaultProviderTimeoutSeconds = 30
 	defaultSessionTimeout         = 300
+	defaultWebhookTimeoutSeconds  = 5
 )
 
 // Config holds all runtime configuration for the ajah gateway.
@@ -31,6 +32,7 @@ type Config struct {
 	AsyncWorkerCount       int
 	ProviderTimeoutSeconds int
 	SessionTimeout         int
+	WebhookTimeoutSeconds  int
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -46,6 +48,7 @@ func Load() (*Config, error) {
 		AsyncWorkerCount:       defaultAsyncWorkerCount,
 		ProviderTimeoutSeconds: defaultProviderTimeoutSeconds,
 		SessionTimeout:         defaultSessionTimeout,
+		WebhookTimeoutSeconds:  defaultWebhookTimeoutSeconds,
 	}
 
 	if raw := os.Getenv("MAX_REQUEST_BODY_BYTES"); raw != "" {
@@ -78,6 +81,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid SESSION_TIMEOUT %q: %w", raw, err)
 		}
 		cfg.SessionTimeout = v
+	}
+
+	if raw := os.Getenv("WEBHOOK_TIMEOUT_SECONDS"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid WEBHOOK_TIMEOUT_SECONDS %q: %w", raw, err)
+		}
+		cfg.WebhookTimeoutSeconds = v
 	}
 
 	return cfg, nil

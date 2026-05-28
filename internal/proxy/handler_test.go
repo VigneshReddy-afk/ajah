@@ -517,6 +517,57 @@ func TestHandler_RejectsUnknownKeyWithJSONError(t *testing.T) {
 	}
 }
 
+func TestHandler_AjahRequestIDHeaderPresent(t *testing.T) {
+	provider := mockProvider(t, http.StatusOK, llmResponse)
+	defer provider.Close()
+
+	em := newMockEmitter()
+	h := newHandler(t, testConfig(), em)
+	h.providerURLs["openai"] = provider.URL
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp := doPost(t, srv.URL+"/v1/chat/completions", "sk-test-key", `{"model":"gpt-4","messages":[]}`)
+	resp.Body.Close()
+
+	got := resp.Header.Get("X-Ajah-Request-ID")
+	if got == "" {
+		t.Error("X-Ajah-Request-ID header is missing")
+	}
+	em.next(time.Second)
+}
+
+func TestHandler_HonorsXRequestIDHeader(t *testing.T) {
+	provider := mockProvider(t, http.StatusOK, llmResponse)
+	defer provider.Close()
+
+	em := newMockEmitter()
+	h := newHandler(t, testConfig(), em)
+	h.providerURLs["openai"] = provider.URL
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4","messages":[]}`))
+	req.Header.Set("Authorization", "sk-test-key")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", "my-custom-id")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	resp.Body.Close()
+
+	got := resp.Header.Get("X-Ajah-Request-ID")
+	if got != "my-custom-id" {
+		t.Errorf("X-Ajah-Request-ID = %q, want %q", got, "my-custom-id")
+	}
+	em.next(time.Second)
+}
+
 func TestHandler_EventTimestampAndLatency(t *testing.T) {
 	provider := mockProvider(t, http.StatusOK, llmResponse)
 	defer provider.Close()

@@ -14,13 +14,13 @@ import (
 
 // RiskFlag is the evaluated risk output for a single completed LLM response.
 type RiskFlag struct {
-	RequestID         string
-	SessionID         string
-	HallucinationRisk float64  // 0.0 to 1.0
-	GroundingScore    float64  // 0.0 to 1.0
-	RiskLevel         string   // "low", "medium", "high", or "unknown"
-	Reasons           []string
-	ShouldWarn        bool
+	RequestID         string   `json:"request_id"`
+	SessionID         string   `json:"session_id"`
+	HallucinationRisk float64  `json:"hallucination_risk"` // 0.0 to 1.0
+	GroundingScore    float64  `json:"grounding_score"`    // 0.0 to 1.0
+	RiskLevel         string   `json:"risk_level"`         // "low", "medium", "high", or "unknown"
+	Reasons           []string `json:"reasons"`
+	ShouldWarn        bool     `json:"should_warn"`
 }
 
 // Flagger evaluates completed LLM responses for hallucination and grounding

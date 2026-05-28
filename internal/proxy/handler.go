@@ -71,7 +71,10 @@ func (h *Handler) SetProviderURL(provider, url string) {
 // ServeHTTP proxies the request to the appropriate LLM provider.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	requestID := newRequestID()
+	requestID := r.Header.Get("X-Request-ID")
+	if requestID == "" {
+		requestID = newRequestID()
+	}
 	log := h.logger.With(zap.String("request_id", requestID))
 
 	if r.Method != http.MethodPost {
@@ -166,6 +169,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	latencyMs := time.Since(start).Milliseconds()
 
 	copyHeaders(w.Header(), resp.Header)
+	w.Header().Set("X-Ajah-Request-ID", requestID)
 	w.WriteHeader(resp.StatusCode)
 	if _, err := w.Write(respBody); err != nil {
 		log.Warn("failed to write response body to client", zap.Error(err))

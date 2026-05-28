@@ -315,6 +315,36 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 	}
 }
 
+// flagResult is the JSON shape returned by GET /warnings/{requestID}.
+type flagResult struct {
+	RequestID string   `json:"request_id"`
+	Flagged   bool     `json:"flagged"`
+	RiskLevel string   `json:"risk_level"`
+	Reasons   []string `json:"reasons"`
+}
+
+// warningByRequestIDHandler looks up a per-request risk flag from Redis and
+// returns it as JSON. Returns 404 if the flag has not been recorded yet or
+// has expired (TTL 1 h).
+func warningByRequestIDHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		requestID := chi.URLParam(r, "requestID")
+		raw, err := rdb.Get(ctx, "flag:"+requestID).Bytes()
+		if err == redis.Nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			logger.Error("read flag", zap.String("request_id", requestID), zap.Error(err))
+			http.Error(w, "failed to read flag", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}
+}
+
 // warningsHandler returns the last 100 high-risk responses from Redis and the
 // total warning count for today.
 func warningsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
