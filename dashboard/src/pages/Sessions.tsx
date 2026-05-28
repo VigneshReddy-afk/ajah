@@ -125,7 +125,7 @@ function durationSecs(start: string, end: string): number {
 
 const thStyle: CSSProperties = {
   padding: '10px 14px',
-  fontSize: 11,
+  fontSize: 'var(--sz-xs)',
   fontWeight: 500,
   color: 'var(--color-text-tertiary)',
   textTransform: 'uppercase',
@@ -137,7 +137,7 @@ const thStyle: CSSProperties = {
 
 const tdStyle: CSSProperties = {
   padding: '11px 14px',
-  fontSize: 13,
+  fontSize: 'var(--sz-base)',
   color: 'var(--color-text-secondary)',
   borderBottom: '0.5px solid var(--color-border-tertiary)',
   whiteSpace: 'nowrap',
@@ -157,7 +157,7 @@ function StepCard({ trace }: { trace: TraceRecord }) {
       flexShrink: 0,
     }}>
       <div style={{
-        fontSize: 12, fontWeight: 600,
+        fontSize: 'var(--sz-sm)', fontWeight: 600,
         color: 'var(--color-text-primary)',
         marginBottom: 4,
         wordBreak: 'break-word',
@@ -168,7 +168,7 @@ function StepCard({ trace }: { trace: TraceRecord }) {
       {trace.tool_name && (
         <div style={{ marginBottom: 6 }}>
           <span style={{
-            fontSize: 10, fontWeight: 500,
+            fontSize: 'var(--sz-label)', fontWeight: 500,
             color: '#185FA5', background: 'rgba(24,95,165,0.10)',
             padding: '1px 5px', borderRadius: 3,
           }}>
@@ -176,22 +176,22 @@ function StepCard({ trace }: { trace: TraceRecord }) {
           </span>
         </div>
       )}
-      <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 2 }}>
+      <div style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', marginBottom: 2 }}>
         {trace.model}
       </div>
-      <div style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)', marginBottom: 1 }}>
+      <div style={{ fontSize: 'var(--sz-xs)', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-secondary)', marginBottom: 1 }}>
         ${trace.cost_usd.toFixed(5)}
       </div>
-      <div style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
+      <div style={{ fontSize: 'var(--sz-xs)', fontVariantNumeric: 'tabular-nums', color: 'var(--color-text-tertiary)', marginBottom: 6 }}>
         {trace.latency_ms}ms
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 500, color: qualityColor(trace.quality_score) }}>
+        <span style={{ fontSize: 'var(--sz-xs)', fontWeight: 500, color: qualityColor(trace.quality_score) }}>
           Q {trace.quality_score.toFixed(2)}
         </span>
         {trace.was_pii_masked && (
           <span style={{
-            fontSize: 10, fontWeight: 500,
+            fontSize: 'var(--sz-label)', fontWeight: 500,
             color: '#A32D2D', background: 'rgba(163,45,45,0.12)',
             padding: '1px 5px', borderRadius: 3,
           }}>PII</span>
@@ -286,7 +286,7 @@ function SessionDetail({ sessionID, useMock }: { sessionID: string; useMock: boo
   if (useMock) {
     return (
       <>
-        <p style={{ margin: '0 0 12px', fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        <p style={{ margin: '0 0 12px', fontSize: 'var(--sz-label)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           Step flow — demo data
         </p>
         <StepTree traces={MOCK_TRACES} />
@@ -298,7 +298,7 @@ function SessionDetail({ sessionID, useMock }: { sessionID: string; useMock: boo
 
   return (
     <>
-      <p style={{ margin: '0 0 12px', fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      <p style={{ margin: '0 0 12px', fontSize: 'var(--sz-label)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         Step flow · {data.traces.length} trace{data.traces.length !== 1 ? 's' : ''}
       </p>
       <StepTree traces={data.traces} />
@@ -316,8 +316,8 @@ export default function Sessions() {
     queryFn: () => fetchJSON<SessionsResponse>('/sessions'),
   })
 
-  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
-  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 13 }}>Failed to load sessions</div>
+  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
+  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 'var(--sz-base)' }}>Failed to load sessions</div>
 
   const sessions = data?.sessions ?? []
   const useMock = sessions.length === 0
@@ -326,7 +326,7 @@ export default function Sessions() {
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16 }}>
-        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+        <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)' }}>
           {rows.length} session{rows.length !== 1 ? 's' : ''} — click row to expand step flow
         </span>
       </div>
@@ -375,7 +375,7 @@ export default function Sessions() {
                       <td style={{ ...tdStyle, fontVariantNumeric: 'tabular-nums' }}>{dur}s</td>
                       <td style={tdStyle}>
                         <span style={{
-                          fontSize: 11, fontWeight: 500,
+                          fontSize: 'var(--sz-xs)', fontWeight: 500,
                           color: '#0F6E56', background: 'rgba(15,110,86,0.12)',
                           padding: '2px 7px', borderRadius: 4,
                         }}>

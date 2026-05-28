@@ -62,7 +62,7 @@ function qualityStyle(score: number): CSSProperties {
 
 const thStyle: CSSProperties = {
   padding: '10px 14px',
-  fontSize: 11,
+  fontSize: 'var(--sz-xs)',
   fontWeight: 500,
   color: 'var(--color-text-tertiary)',
   textTransform: 'uppercase',
@@ -74,7 +74,7 @@ const thStyle: CSSProperties = {
 
 const tdStyle: CSSProperties = {
   padding: '11px 14px',
-  fontSize: 13,
+  fontSize: 'var(--sz-base)',
   color: 'var(--color-text-secondary)',
   borderBottom: '0.5px solid var(--color-border-tertiary)',
   whiteSpace: 'nowrap',
@@ -90,15 +90,15 @@ export default function Traces() {
     queryFn: () => fetchJSON('/metrics/traces'),
   })
 
-  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
-  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 13 }}>Failed to load traces</div>
+  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
+  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 'var(--sz-base)' }}>Failed to load traces</div>
 
   const rows: Row[] = data.length > 0 ? data.map(fromAPI) : MOCK_ROWS
 
   return (
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+        <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)' }}>
           {rows.length} rows — click row to expand
         </span>
       </div>
@@ -146,7 +146,7 @@ export default function Traces() {
                     {/* Model badge */}
                     <td style={tdStyle}>
                       <span style={{
-                        fontSize: 11, fontWeight: 500,
+                        fontSize: 'var(--sz-xs)', fontWeight: 500,
                         color: '#185FA5',
                         background: 'rgba(24,95,165,0.10)',
                         padding: '2px 7px',
@@ -167,7 +167,7 @@ export default function Traces() {
                     <td style={tdStyle}>
                       {row.pii ? (
                         <span style={{
-                          fontSize: 11, fontWeight: 500,
+                          fontSize: 'var(--sz-xs)', fontWeight: 500,
                           color: '#A32D2D',
                           background: 'rgba(163,45,45,0.12)',
                           padding: '2px 7px',
@@ -175,7 +175,7 @@ export default function Traces() {
                         }}>YES</span>
                       ) : (
                         <span style={{
-                          fontSize: 11,
+                          fontSize: 'var(--sz-xs)',
                           color: 'var(--color-text-tertiary)',
                           background: 'var(--color-background-primary)',
                           padding: '2px 7px',
@@ -197,7 +197,7 @@ export default function Traces() {
                         background: 'var(--color-background-primary)',
                         borderBottom: '0.5px solid var(--color-border-tertiary)',
                       }}>
-                        <p style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>
+                        <p style={{ fontSize: 'var(--sz-label)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>
                           Masked Prompt
                         </p>
                         <div style={{
@@ -206,7 +206,7 @@ export default function Traces() {
                           borderRadius: 6,
                           padding: '10px 14px',
                           fontFamily: 'monospace',
-                          fontSize: 13,
+                          fontSize: 'var(--sz-base)',
                           color: 'var(--color-text-primary)',
                           lineHeight: 1.6,
                           whiteSpace: 'pre-wrap',
@@ -218,7 +218,7 @@ export default function Traces() {
                           <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                             {row.flags.map(flag => (
                               <span key={flag} style={{
-                                fontSize: 10, fontWeight: 500,
+                                fontSize: 'var(--sz-label)', fontWeight: 500,
                                 color: '#854F0B',
                                 background: 'rgba(133,79,11,0.12)',
                                 border: '0.5px solid rgba(133,79,11,0.2)',

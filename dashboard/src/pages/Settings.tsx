@@ -23,10 +23,10 @@ const PROVIDER_ORDER = Object.keys(PROVIDER_META)
 const DEFAULT_PROVIDERS: ProviderKey[] = PROVIDER_ORDER.map(p => ({ provider: p, api_key: '' }))
 
 const MOCK_FEATURES: FeatureSetting[] = [
-  { feature_name: 'chat',      cost_alert_threshold_usd: 1.00, pii_masking_enabled: true },
-  { feature_name: 'summarize', cost_alert_threshold_usd: 2.00, pii_masking_enabled: true },
-  { feature_name: 'translate', cost_alert_threshold_usd: 0.50, pii_masking_enabled: false },
-  { feature_name: 'classify',  cost_alert_threshold_usd: 0.50, pii_masking_enabled: false },
+  { feature_name: 'chat',      cost_alert_threshold_usd: 1.00, pii_masking_enabled: true,  webhook_url: '' },
+  { feature_name: 'summarize', cost_alert_threshold_usd: 2.00, pii_masking_enabled: true,  webhook_url: '' },
+  { feature_name: 'translate', cost_alert_threshold_usd: 0.50, pii_masking_enabled: false, webhook_url: '' },
+  { feature_name: 'classify',  cost_alert_threshold_usd: 0.50, pii_masking_enabled: false, webhook_url: '' },
 ]
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -44,21 +44,21 @@ const inputStyle: CSSProperties = {
   border: '0.5px solid var(--color-border-secondary)',
   borderRadius: 6,
   padding: '8px 36px 8px 10px',
-  fontSize: 13,
+  fontSize: 'var(--sz-base)',
   color: 'var(--color-text-primary)',
   outline: 'none',
 }
 
 const labelStyle: CSSProperties = {
   display: 'block',
-  fontSize: 11,
+  fontSize: 'var(--sz-xs)',
   color: 'var(--color-text-tertiary)',
   marginBottom: 6,
   fontWeight: 500,
 }
 
 const sectionTitle: CSSProperties = {
-  fontSize: 12,
+  fontSize: 'var(--sz-sm)',
   fontWeight: 600,
   color: 'var(--color-text-secondary)',
   textTransform: 'uppercase',
@@ -68,7 +68,7 @@ const sectionTitle: CSSProperties = {
 
 const thStyle: CSSProperties = {
   padding: '10px 14px',
-  fontSize: 11,
+  fontSize: 'var(--sz-xs)',
   fontWeight: 500,
   color: 'var(--color-text-tertiary)',
   textTransform: 'uppercase',
@@ -79,7 +79,7 @@ const thStyle: CSSProperties = {
 
 const tdStyle: CSSProperties = {
   padding: '11px 14px',
-  fontSize: 13,
+  fontSize: 'var(--sz-base)',
   color: 'var(--color-text-secondary)',
   borderBottom: '0.5px solid var(--color-border-tertiary)',
 }
@@ -123,7 +123,7 @@ export default function SettingsPage() {
   const updateFeature = (i: number, patch: Partial<FeatureSetting>) =>
     setFeatures(prev => prev.map((f, j) => j === i ? { ...f, ...patch } : f))
 
-  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
 
   return (
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 900 }}>
@@ -173,8 +173,8 @@ export default function SettingsPage() {
             borderRadius: 10,
             padding: '14px 18px',
           }}>
-            <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 600, color: '#854F0B' }}>Azure OpenAI</p>
-            <p style={{ margin: 0, fontSize: 12, color: 'rgba(133,79,11,0.85)', lineHeight: 1.6 }}>
+            <p style={{ margin: '0 0 4px', fontSize: 'var(--sz-sm)', fontWeight: 600, color: '#854F0B' }}>Azure OpenAI</p>
+            <p style={{ margin: 0, fontSize: 'var(--sz-sm)', color: 'rgba(133,79,11,0.85)', lineHeight: 1.6 }}>
               Azure requires endpoint configuration.{' '}
               Set{' '}
               <code style={{ fontFamily: 'monospace', background: 'rgba(133,79,11,0.12)', padding: '1px 5px', borderRadius: 3 }}>
@@ -224,7 +224,7 @@ export default function SettingsPage() {
                   </td>
                   <td style={tdStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 13 }}>$</span>
+                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>$</span>
                       <input
                         type="number"
                         min="0"
@@ -233,7 +233,7 @@ export default function SettingsPage() {
                         onChange={e => updateFeature(i, { cost_alert_threshold_usd: parseFloat(e.target.value) || 0 })}
                         style={{ ...inputStyle, padding: '6px 10px', width: 90 }}
                       />
-                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>/ day</span>
+                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-sm)' }}>/ day</span>
                     </div>
                   </td>
                   <td style={tdStyle}>
@@ -258,7 +258,7 @@ export default function SettingsPage() {
                   <td style={tdStyle}>
                     {f.feature_name ? (
                       <span style={{
-                        fontSize: 11, fontWeight: 500,
+                        fontSize: 'var(--sz-xs)', fontWeight: 500,
                         color: '#0F6E56',
                         background: 'rgba(15,110,86,0.12)',
                         padding: '2px 8px',
@@ -274,7 +274,7 @@ export default function SettingsPage() {
                       onClick={() => setFeatures(prev => prev.filter((_, j) => j !== i))}
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
-                        fontSize: 12, color: 'var(--color-text-tertiary)',
+                        fontSize: 'var(--sz-sm)', color: 'var(--color-text-tertiary)',
                         transition: 'color 0.12s',
                       }}
                       onMouseEnter={e => (e.currentTarget.style.color = '#A32D2D')}
@@ -298,10 +298,10 @@ export default function SettingsPage() {
 
         <button
           type="button"
-          onClick={() => setFeatures(prev => [...prev, { feature_name: '', cost_alert_threshold_usd: 1.0, pii_masking_enabled: true }])}
+          onClick={() => setFeatures(prev => [...prev, { feature_name: '', cost_alert_threshold_usd: 1.0, pii_masking_enabled: true, webhook_url: '' }])}
           style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            fontSize: 13, color: '#185FA5',
+            fontSize: 'var(--sz-base)', color: '#185FA5',
           }}
         >
           + Add feature
@@ -320,7 +320,7 @@ export default function SettingsPage() {
             border: 'none',
             borderRadius: 7,
             padding: '9px 20px',
-            fontSize: 13,
+            fontSize: 'var(--sz-base)',
             fontWeight: 500,
             cursor: mutation.isPending ? 'default' : 'pointer',
             opacity: mutation.isPending ? 0.6 : 1,
@@ -330,10 +330,10 @@ export default function SettingsPage() {
           {mutation.isPending ? 'Saving…' : 'Save Settings'}
         </button>
         {mutation.isSuccess && (
-          <span style={{ fontSize: 13, color: '#0F6E56', fontWeight: 500 }}>Settings saved</span>
+          <span style={{ fontSize: 'var(--sz-base)', color: '#0F6E56', fontWeight: 500 }}>Settings saved</span>
         )}
         {mutation.isError && (
-          <span style={{ fontSize: 13, color: '#A32D2D' }}>Failed to save</span>
+          <span style={{ fontSize: 'var(--sz-base)', color: '#A32D2D' }}>Failed to save</span>
         )}
       </div>
 

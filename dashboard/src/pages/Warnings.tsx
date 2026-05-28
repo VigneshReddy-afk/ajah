@@ -21,7 +21,7 @@ const card: CSSProperties = {
 
 const th: CSSProperties = {
   padding: '9px 12px',
-  fontSize: 11,
+  fontSize: 'var(--sz-xs)',
   fontWeight: 500,
   color: 'var(--color-text-tertiary)',
   textTransform: 'uppercase',
@@ -34,7 +34,7 @@ const th: CSSProperties = {
 
 const td: CSSProperties = {
   padding: '10px 12px',
-  fontSize: 12,
+  fontSize: 'var(--sz-sm)',
   color: 'var(--color-text-secondary)',
   borderBottom: '0.5px solid var(--color-border-tertiary)',
   verticalAlign: 'top',
@@ -46,13 +46,13 @@ function MetricCard({ label, value, color }: { label: string; value: string; col
   return (
     <div style={card}>
       <p style={{
-        fontSize: 11, color: 'var(--color-text-tertiary)',
+        fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)',
         textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0,
       }}>
         {label}
       </p>
       <p style={{
-        fontSize: 28, fontWeight: 600, margin: '10px 0 0',
+        fontSize: 'var(--sz-stat)', fontWeight: 600, margin: '10px 0 0',
         color, fontVariantNumeric: 'tabular-nums',
       }}>
         {value}
@@ -69,7 +69,7 @@ function RiskBadge({ level }: { level: string }) {
   return (
     <span style={{
       display: 'inline-block',
-      fontSize: 11, fontWeight: 600,
+      fontSize: 'var(--sz-xs)', fontWeight: 600,
       textTransform: 'uppercase', letterSpacing: '0.05em',
       color, background: bg, borderRadius: 4, padding: '2px 8px',
     }}>
@@ -83,7 +83,7 @@ function ScoreCell({ value, higherIsGood = false }: { value: number; higherIsGoo
   const warn  = higherIsGood ? value < 0.5 : value >= 0.4
   const color = bad ? HIGH_COLOR : warn ? MED_COLOR : '#1D9E75'
   return (
-    <span style={{ color, fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
+    <span style={{ color, fontVariantNumeric: 'tabular-nums', fontSize: 'var(--sz-sm)' }}>
       {value.toFixed(2)}
     </span>
   )
@@ -93,19 +93,19 @@ function ReasonsCell({ reasons }: { reasons: string[] }) {
   const [expanded, setExpanded] = useState(false)
 
   if (!reasons?.length) {
-    return <span style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>—</span>
+    return <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-sm)' }}>—</span>
   }
 
   if (expanded || reasons.length === 1) {
     return (
-      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+      <div style={{ fontSize: 'var(--sz-sm)', color: 'var(--color-text-secondary)' }}>
         {reasons.map((r, i) => <div key={i} style={{ marginBottom: i < reasons.length - 1 ? 3 : 0 }}>{r}</div>)}
         {reasons.length > 1 && (
           <button
             onClick={() => setExpanded(false)}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              padding: '4px 0 0', fontSize: 11, color: '#185FA5', display: 'block',
+              padding: '4px 0 0', fontSize: 'var(--sz-xs)', color: '#185FA5', display: 'block',
             }}
           >
             show less
@@ -117,14 +117,14 @@ function ReasonsCell({ reasons }: { reasons: string[] }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-      <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', flex: 1, minWidth: 0 }}>
+      <span style={{ fontSize: 'var(--sz-sm)', color: 'var(--color-text-secondary)', flex: 1, minWidth: 0 }}>
         {reasons[0]}
       </span>
       <button
         onClick={() => setExpanded(true)}
         style={{
           background: 'none', border: 'none', cursor: 'pointer',
-          padding: '0 0 0 4px', fontSize: 11, color: '#185FA5',
+          padding: '0 0 0 4px', fontSize: 'var(--sz-xs)', color: '#185FA5',
           whiteSpace: 'nowrap', flexShrink: 0,
         }}
       >
@@ -161,10 +161,10 @@ export default function Warnings() {
     : totalToday > 0 ? `${totalToday}` : '—'
 
   if (isLoading) {
-    return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+    return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
   }
   if (error) {
-    return <div style={{ padding: 24, color: HIGH_COLOR, fontSize: 13 }}>Failed to load warnings</div>
+    return <div style={{ padding: 24, color: HIGH_COLOR, fontSize: 'var(--sz-base)' }}>Failed to load warnings</div>
   }
 
   return (
@@ -185,7 +185,7 @@ export default function Warnings() {
         overflow: 'hidden',
       }}>
         {warnings.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+          <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>
             No flagged responses yet
           </div>
         ) : (
@@ -211,7 +211,7 @@ export default function Warnings() {
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       {format(new Date(w.timestamp), 'MMM d, HH:mm:ss')}
                     </td>
-                    <td style={{ ...td, fontFamily: 'monospace', fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                    <td style={{ ...td, fontFamily: 'monospace', fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)' }}>
                       {w.session_id ? w.session_id.slice(0, 8) : '—'}
                     </td>
                     <td style={td}>

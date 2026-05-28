@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -31,9 +31,22 @@ const PAGE_META: Record<string, { title: string; badge?: string }> = {
   '/settings': { title: 'Settings' },
 }
 
+type TextSize = 'small' | 'medium' | 'large'
+
 export default function Layout() {
   const location = useLocation()
   const [hovered, setHovered] = useState<string | null>(null)
+
+  const [textSize, setTextSize] = useState<TextSize>(() =>
+    (localStorage.getItem('ajah-text-size') as TextSize) ?? 'medium'
+  )
+
+  useEffect(() => {
+    document.documentElement.classList.remove('sz-sm', 'sz-lg')
+    if (textSize === 'small')  document.documentElement.classList.add('sz-sm')
+    if (textSize === 'large')  document.documentElement.classList.add('sz-lg')
+    localStorage.setItem('ajah-text-size', textSize)
+  }, [textSize])
   const meta = PAGE_META[location.pathname] ?? { title: 'Dashboard' }
 
   const { data: sessionsData } = useQuery<SessionsResponse>({
@@ -177,9 +190,41 @@ export default function Layout() {
               </span>
             )}
           </div>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
-            {format(new Date(), 'MMMM d, yyyy')}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Text-size picker: A A A (small / medium / large) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              {(['small', 'medium', 'large'] as const).map((s) => {
+                const letterPx = s === 'small' ? 10 : s === 'large' ? 15 : 12
+                const active   = textSize === s
+                return (
+                  <button
+                    key={s}
+                    title={`${s.charAt(0).toUpperCase() + s.slice(1)} text`}
+                    onClick={() => setTextSize(s)}
+                    style={{
+                      width: 28, height: 28, borderRadius: 6,
+                      border: `1px solid ${active ? '#185FA5' : 'var(--color-border-secondary)'}`,
+                      background: active ? 'rgba(24,95,165,0.15)' : 'transparent',
+                      color: active ? '#185FA5' : 'var(--color-text-tertiary)',
+                      fontSize: letterPx,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'border-color 0.12s, background 0.12s, color 0.12s',
+                      lineHeight: 1,
+                      padding: 0,
+                    }}
+                  >
+                    A
+                  </button>
+                )
+              })}
+            </div>
+
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {format(new Date(), 'MMMM d, yyyy')}
+            </span>
+          </div>
         </div>
 
         {/* Scrollable content */}

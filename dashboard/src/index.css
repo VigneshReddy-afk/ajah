@@ -1,14 +1,47 @@
 @import "tailwindcss";
 
 :root {
-  --color-background-tertiary: #0C0E12;
-  --color-background-secondary: #111318;
-  --color-background-primary: #181B22;
-  --color-border-tertiary: rgba(255, 255, 255, 0.055);
-  --color-border-secondary: rgba(255, 255, 255, 0.09);
-  --color-text-primary: #E3E6EF;
-  --color-text-secondary: #8A92A6;
-  --color-text-tertiary: #505867;
+  /* ── Backgrounds ── */
+  --color-background-tertiary:  #0E1118;
+  --color-background-secondary: #13161F;
+  --color-background-primary:   #1A1E28;
+
+  /* ── Borders (more visible than before) ── */
+  --color-border-tertiary:  rgba(255, 255, 255, 0.09);
+  --color-border-secondary: rgba(255, 255, 255, 0.14);
+
+  /* ── Text (brighter for clarity) ── */
+  --color-text-primary:   #EDF0FA;
+  --color-text-secondary: #9BA4BE;
+  --color-text-tertiary:  #626E86;
+
+  /* ── Font size scale (medium default) ── */
+  --sz-label: 10px;   /* overlines, badge labels       */
+  --sz-xs:    11px;   /* chips, secondary badges        */
+  --sz-sm:    12px;   /* timestamps, meta text          */
+  --sz-base:  13px;   /* table cells, body copy         */
+  --sz-lg:    14px;   /* section titles, card headers   */
+  --sz-stat:  28px;   /* stat card big numbers          */
+}
+
+/* ── Compact (–1 px per tier) ── */
+html.sz-sm {
+  --sz-label: 9px;
+  --sz-xs:    10px;
+  --sz-sm:    11px;
+  --sz-base:  12px;
+  --sz-lg:    13px;
+  --sz-stat:  22px;
+}
+
+/* ── Comfortable (+1 px per tier) ── */
+html.sz-lg {
+  --sz-label: 11px;
+  --sz-xs:    12px;
+  --sz-sm:    13px;
+  --sz-base:  14px;
+  --sz-lg:    15px;
+  --sz-stat:  32px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -28,5 +61,5 @@ body {
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }

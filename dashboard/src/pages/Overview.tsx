@@ -115,17 +115,17 @@ function StatCard({
 }) {
   return (
     <div style={card}>
-      <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
+      <p style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
         {label}
       </p>
       <p style={{
-        fontSize: 28, fontWeight: 600, margin: '10px 0 6px',
+        fontSize: 'var(--sz-stat)', fontWeight: 600, margin: '10px 0 6px',
         color: danger ? '#A32D2D' : 'var(--color-text-primary)',
         fontVariantNumeric: 'tabular-nums',
       }}>
         {value}
       </p>
-      <p style={{ fontSize: 12, color: danger ? '#A32D2D' : 'var(--color-text-tertiary)', margin: 0 }}>
+      <p style={{ fontSize: 'var(--sz-sm)', color: danger ? '#A32D2D' : 'var(--color-text-tertiary)', margin: 0 }}>
         {sub}
       </p>
     </div>
@@ -135,7 +135,7 @@ function StatCard({
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ ...card, padding: '20px 20px 16px' }}>
-      <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      <p style={{ fontSize: 'var(--sz-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
         {title}
       </p>
       {children}
@@ -146,7 +146,7 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 function EmptyChart({ msg = 'No data yet' }: { msg?: string }) {
   return (
     <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <span style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>{msg}</span>
+      <span style={{ fontSize: 'var(--sz-base)', color: 'var(--color-text-tertiary)' }}>{msg}</span>
     </div>
   )
 }
@@ -165,7 +165,7 @@ export default function Overview() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+      <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
     )
   }
 
@@ -253,8 +253,8 @@ export default function Overview() {
                 {modelData.map((m, i) => (
                   <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <div style={{ width: 8, height: 8, borderRadius: 2, background: MODEL_COLORS[i % MODEL_COLORS.length], flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
-                    <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>${m.value.toFixed(5)}</span>
+                    <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+                    <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>${m.value.toFixed(5)}</span>
                   </div>
                 ))}
               </div>

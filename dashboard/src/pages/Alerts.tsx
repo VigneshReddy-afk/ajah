@@ -78,7 +78,7 @@ const cardStyle: CSSProperties = {
 function Chip({ label, value }: { label: string; value: string }) {
   return (
     <span style={{
-      fontSize: 11,
+      fontSize: 'var(--sz-xs)',
       color: 'var(--color-text-secondary)',
       background: 'var(--color-background-primary)',
       border: '0.5px solid var(--color-border-tertiary)',
@@ -99,8 +99,8 @@ export default function Alerts() {
     queryFn: () => fetchJSON('/metrics/alerts'),
   })
 
-  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
-  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 13 }}>Failed to load alerts</div>
+  if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
+  if (error)     return <div style={{ padding: 24, color: '#A32D2D', fontSize: 'var(--sz-base)' }}>Failed to load alerts</div>
 
   // Real alerts from API
   if (data.length > 0) {
@@ -116,10 +116,10 @@ export default function Alerts() {
               <IconAlertTriangle size={18} color="#854F0B" strokeWidth={1.75} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+              <p style={{ margin: '0 0 4px', fontSize: 'var(--sz-lg)', fontWeight: 500, color: 'var(--color-text-primary)' }}>
                 Cost spike — {alert.feature} feature
               </p>
-              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              <p style={{ margin: '0 0 10px', fontSize: 'var(--sz-sm)', color: 'var(--color-text-tertiary)' }}>
                 {format(new Date(alert.timestamp), 'MMM d · HH:mm')} · Threshold exceeded
               </p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -148,10 +148,10 @@ export default function Alerts() {
               <Icon size={18} color={alert.iconColor} strokeWidth={1.75} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)' }}>
+              <p style={{ margin: '0 0 4px', fontSize: 'var(--sz-lg)', fontWeight: 500, color: 'var(--color-text-primary)' }}>
                 {alert.title}
               </p>
-              <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              <p style={{ margin: '0 0 10px', fontSize: 'var(--sz-sm)', color: 'var(--color-text-tertiary)' }}>
                 {alert.meta}
               </p>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
