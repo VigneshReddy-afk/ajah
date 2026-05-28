@@ -13,26 +13,30 @@ import (
 
 // TraceRecord is a single observability record stored in ClickHouse.
 type TraceRecord struct {
-	TraceID      string
-	RequestID    string
-	UserID       string
-	SessionID    string
-	FeatureName  string
-	AgentStep    string
-	ParentStepID string
-	StepName     string
-	ToolName     string
-	Provider     string
-	Model        string
-	InputTokens  int
-	OutputTokens int
-	CostUSD      float64
-	LatencyMs    int64
-	StatusCode   int
-	MaskedPrompt string
-	WasPIIMasked bool
-	QualityScore float64
-	Timestamp    time.Time
+	TraceID           string
+	RequestID         string
+	UserID            string
+	SessionID         string
+	FeatureName       string
+	AgentStep         string
+	ParentStepID      string
+	StepName          string
+	ToolName          string
+	Provider          string
+	Model             string
+	InputTokens       int
+	OutputTokens      int
+	CostUSD           float64
+	LatencyMs         int64
+	StatusCode        int
+	MaskedPrompt      string
+	WasPIIMasked      bool
+	QualityScore      float64
+	Timestamp         time.Time
+	HallucinationRisk float64
+	GroundingScore    float64
+	RiskLevel         string
+	ShouldWarn        bool
 }
 
 // Writer holds a ClickHouse connection and exposes write operations.
@@ -43,38 +47,45 @@ type Writer struct {
 
 const createTableSQL = `
 CREATE TABLE IF NOT EXISTS traces (
-    trace_id       String,
-    request_id     String,
-    user_id        String,
-    session_id     String,
-    feature_name   String,
-    agent_step     String,
-    provider       String,
-    model          String,
-    input_tokens   Int32,
-    output_tokens  Int32,
-    cost_usd       Float64,
-    latency_ms     Int64,
-    status_code    Int32,
-    masked_prompt  String,
-    was_pii_masked UInt8,
-    quality_score  Float64,
-    timestamp      DateTime,
-    parent_step_id String,
-    step_name      String,
-    tool_name      String
+    trace_id            String,
+    request_id          String,
+    user_id             String,
+    session_id          String,
+    feature_name        String,
+    agent_step          String,
+    provider            String,
+    model               String,
+    input_tokens        Int32,
+    output_tokens       Int32,
+    cost_usd            Float64,
+    latency_ms          Int64,
+    status_code         Int32,
+    masked_prompt       String,
+    was_pii_masked      UInt8,
+    quality_score       Float64,
+    timestamp           DateTime,
+    parent_step_id      String,
+    step_name           String,
+    tool_name           String,
+    hallucination_risk  Float64,
+    grounding_score     Float64,
+    risk_level          String,
+    should_warn         UInt8
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, user_id, feature_name)
 `
 
-// migrateTableSQL adds the three agent-step metadata columns to existing
-// traces tables that predate this schema version. IF NOT EXISTS is supported
-// since ClickHouse 22.4 and means running this on a fresh table is a no-op.
+// migrateTableSQL adds columns introduced after the initial schema version.
+// All additions use IF NOT EXISTS so this is safe to re-run on any table version.
 const migrateTableSQL = `
 ALTER TABLE traces
-    ADD COLUMN IF NOT EXISTS parent_step_id String DEFAULT '',
-    ADD COLUMN IF NOT EXISTS step_name      String DEFAULT '',
-    ADD COLUMN IF NOT EXISTS tool_name      String DEFAULT ''
+    ADD COLUMN IF NOT EXISTS parent_step_id     String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS step_name          String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tool_name          String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS hallucination_risk Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS grounding_score    Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS risk_level         String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS should_warn        UInt8   DEFAULT 0
 `
 
 // New opens a ClickHouse connection using dsn and pings the server to verify
@@ -136,7 +147,8 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 		agent_step, provider, model, input_tokens, output_tokens,
 		cost_usd, latency_ms, status_code, masked_prompt,
 		was_pii_masked, quality_score, timestamp,
-		parent_step_id, step_name, tool_name
+		parent_step_id, step_name, tool_name,
+		hallucination_risk, grounding_score, risk_level, should_warn
 	)`)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -164,6 +176,10 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 			r.ParentStepID,
 			r.StepName,
 			r.ToolName,
+			r.HallucinationRisk,
+			r.GroundingScore,
+			r.RiskLevel,
+			boolToUint8(r.ShouldWarn),
 		); err != nil {
 			return fmt.Errorf("append record %q: %w", r.TraceID, err)
 		}
@@ -185,7 +201,8 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 		       agent_step, provider, model, input_tokens, output_tokens,
 		       cost_usd, latency_ms, status_code, masked_prompt,
 		       was_pii_masked, quality_score, timestamp,
-		       parent_step_id, step_name, tool_name
+		       parent_step_id, step_name, tool_name,
+		       hallucination_risk, grounding_score, risk_level, should_warn
 		FROM traces
 		ORDER BY timestamp DESC
 		LIMIT %d`, limit))
@@ -202,6 +219,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 			outputTokens int32
 			statusCode   int32
 			wasPIIMasked uint8
+			shouldWarn   uint8
 		)
 		if err := rows.Scan(
 			&r.TraceID, &r.RequestID, &r.UserID, &r.SessionID, &r.FeatureName,
@@ -209,6 +227,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 			&r.CostUSD, &r.LatencyMs, &statusCode, &r.MaskedPrompt,
 			&wasPIIMasked, &r.QualityScore, &r.Timestamp,
 			&r.ParentStepID, &r.StepName, &r.ToolName,
+			&r.HallucinationRisk, &r.GroundingScore, &r.RiskLevel, &shouldWarn,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}
@@ -216,6 +235,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 		r.OutputTokens = int(outputTokens)
 		r.StatusCode = int(statusCode)
 		r.WasPIIMasked = wasPIIMasked == 1
+		r.ShouldWarn = shouldWarn == 1
 		records = append(records, r)
 	}
 	if err := rows.Err(); err != nil {

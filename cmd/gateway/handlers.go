@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -29,26 +30,42 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // traceResponse is the JSON shape returned by GET /metrics/traces.
 type traceResponse struct {
-	TraceID      string    `json:"trace_id"`
-	RequestID    string    `json:"request_id"`
-	UserID       string    `json:"user_id"`
-	SessionID    string    `json:"session_id"`
-	FeatureName  string    `json:"feature_name"`
-	AgentStep    string    `json:"agent_step"`
-	ParentStepID string    `json:"parent_step_id"`
-	StepName     string    `json:"step_name"`
-	ToolName     string    `json:"tool_name"`
-	Provider     string    `json:"provider"`
-	Model        string    `json:"model"`
-	InputTokens  int       `json:"input_tokens"`
-	OutputTokens int       `json:"output_tokens"`
-	CostUSD      float64   `json:"cost_usd"`
-	LatencyMs    int64     `json:"latency_ms"`
-	StatusCode   int       `json:"status_code"`
-	MaskedPrompt string    `json:"masked_prompt"`
-	WasPIIMasked bool      `json:"was_pii_masked"`
-	QualityScore float64   `json:"quality_score"`
-	Timestamp    time.Time `json:"timestamp"`
+	TraceID           string    `json:"trace_id"`
+	RequestID         string    `json:"request_id"`
+	UserID            string    `json:"user_id"`
+	SessionID         string    `json:"session_id"`
+	FeatureName       string    `json:"feature_name"`
+	AgentStep         string    `json:"agent_step"`
+	ParentStepID      string    `json:"parent_step_id"`
+	StepName          string    `json:"step_name"`
+	ToolName          string    `json:"tool_name"`
+	Provider          string    `json:"provider"`
+	Model             string    `json:"model"`
+	InputTokens       int       `json:"input_tokens"`
+	OutputTokens      int       `json:"output_tokens"`
+	CostUSD           float64   `json:"cost_usd"`
+	LatencyMs         int64     `json:"latency_ms"`
+	StatusCode        int       `json:"status_code"`
+	MaskedPrompt      string    `json:"masked_prompt"`
+	WasPIIMasked      bool      `json:"was_pii_masked"`
+	QualityScore      float64   `json:"quality_score"`
+	Timestamp         time.Time `json:"timestamp"`
+	HallucinationRisk float64   `json:"hallucination_risk"`
+	GroundingScore    float64   `json:"grounding_score"`
+	RiskLevel         string    `json:"risk_level"`
+	ShouldWarn        bool      `json:"should_warn"`
+}
+
+// warningItem is the JSON shape of a single high-risk response stored in Redis
+// and returned by GET /warnings.
+type warningItem struct {
+	RequestID         string    `json:"request_id"`
+	SessionID         string    `json:"session_id"`
+	RiskLevel         string    `json:"risk_level"`
+	HallucinationRisk float64   `json:"hallucination_risk"`
+	GroundingScore    float64   `json:"grounding_score"`
+	Reasons           []string  `json:"reasons"`
+	Timestamp         time.Time `json:"timestamp"`
 }
 
 // tracesHandler returns the 100 most recent traces from ClickHouse.
@@ -65,26 +82,30 @@ func tracesHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc 
 		resp := make([]traceResponse, len(records))
 		for i, rec := range records {
 			resp[i] = traceResponse{
-				TraceID:      rec.TraceID,
-				RequestID:    rec.RequestID,
-				UserID:       rec.UserID,
-				SessionID:    rec.SessionID,
-				FeatureName:  rec.FeatureName,
-				AgentStep:    rec.AgentStep,
-				ParentStepID: rec.ParentStepID,
-				StepName:     rec.StepName,
-				ToolName:     rec.ToolName,
-				Provider:     rec.Provider,
-				Model:        rec.Model,
-				InputTokens:  rec.InputTokens,
-				OutputTokens: rec.OutputTokens,
-				CostUSD:      rec.CostUSD,
-				LatencyMs:    rec.LatencyMs,
-				StatusCode:   rec.StatusCode,
-				MaskedPrompt: rec.MaskedPrompt,
-				WasPIIMasked: rec.WasPIIMasked,
-				QualityScore: rec.QualityScore,
-				Timestamp:    rec.Timestamp,
+				TraceID:           rec.TraceID,
+				RequestID:         rec.RequestID,
+				UserID:            rec.UserID,
+				SessionID:         rec.SessionID,
+				FeatureName:       rec.FeatureName,
+				AgentStep:         rec.AgentStep,
+				ParentStepID:      rec.ParentStepID,
+				StepName:          rec.StepName,
+				ToolName:          rec.ToolName,
+				Provider:          rec.Provider,
+				Model:             rec.Model,
+				InputTokens:       rec.InputTokens,
+				OutputTokens:      rec.OutputTokens,
+				CostUSD:           rec.CostUSD,
+				LatencyMs:         rec.LatencyMs,
+				StatusCode:        rec.StatusCode,
+				MaskedPrompt:      rec.MaskedPrompt,
+				WasPIIMasked:      rec.WasPIIMasked,
+				QualityScore:      rec.QualityScore,
+				Timestamp:         rec.Timestamp,
+				HallucinationRisk: rec.HallucinationRisk,
+				GroundingScore:    rec.GroundingScore,
+				RiskLevel:         rec.RiskLevel,
+				ShouldWarn:        rec.ShouldWarn,
 			}
 		}
 
@@ -246,26 +267,30 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 		traces := make([]traceResponse, len(traceRecs))
 		for i, t := range traceRecs {
 			traces[i] = traceResponse{
-				TraceID:      t.TraceID,
-				RequestID:    t.RequestID,
-				UserID:       t.UserID,
-				SessionID:    t.SessionID,
-				FeatureName:  t.FeatureName,
-				AgentStep:    t.AgentStep,
-				ParentStepID: t.ParentStepID,
-				StepName:     t.StepName,
-				ToolName:     t.ToolName,
-				Provider:     t.Provider,
-				Model:        t.Model,
-				InputTokens:  t.InputTokens,
-				OutputTokens: t.OutputTokens,
-				CostUSD:      t.CostUSD,
-				LatencyMs:    t.LatencyMs,
-				StatusCode:   t.StatusCode,
-				MaskedPrompt: t.MaskedPrompt,
-				WasPIIMasked: t.WasPIIMasked,
-				QualityScore: t.QualityScore,
-				Timestamp:    t.Timestamp,
+				TraceID:           t.TraceID,
+				RequestID:         t.RequestID,
+				UserID:            t.UserID,
+				SessionID:         t.SessionID,
+				FeatureName:       t.FeatureName,
+				AgentStep:         t.AgentStep,
+				ParentStepID:      t.ParentStepID,
+				StepName:          t.StepName,
+				ToolName:          t.ToolName,
+				Provider:          t.Provider,
+				Model:             t.Model,
+				InputTokens:       t.InputTokens,
+				OutputTokens:      t.OutputTokens,
+				CostUSD:           t.CostUSD,
+				LatencyMs:         t.LatencyMs,
+				StatusCode:        t.StatusCode,
+				MaskedPrompt:      t.MaskedPrompt,
+				WasPIIMasked:      t.WasPIIMasked,
+				QualityScore:      t.QualityScore,
+				Timestamp:         t.Timestamp,
+				HallucinationRisk: t.HallucinationRisk,
+				GroundingScore:    t.GroundingScore,
+				RiskLevel:         t.RiskLevel,
+				ShouldWarn:        t.ShouldWarn,
 			}
 		}
 
@@ -287,6 +312,40 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(detail)
+	}
+}
+
+// warningsHandler returns the last 100 high-risk responses from Redis and the
+// total warning count for today.
+func warningsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		today := time.Now().UTC().Format("2006-01-02")
+
+		items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+		if err != nil {
+			logger.Error("read warnings list", zap.Error(err))
+			http.Error(w, "failed to read warnings", http.StatusInternalServerError)
+			return
+		}
+
+		warnings := make([]warningItem, 0, len(items))
+		for _, item := range items {
+			var wi warningItem
+			if err := json.Unmarshal([]byte(item), &wi); err != nil {
+				logger.Warn("malformed warning in Redis", zap.String("item", item), zap.Error(err))
+				continue
+			}
+			warnings = append(warnings, wi)
+		}
+
+		totalToday := readCounter(ctx, rdb, logger, fmt.Sprintf("warnings:daily:%s", today))
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"warnings":    warnings,
+			"total_today": totalToday,
+		})
 	}
 }
 

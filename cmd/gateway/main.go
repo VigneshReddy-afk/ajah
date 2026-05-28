@@ -17,6 +17,7 @@ import (
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/db"
 	"github.com/ajah/core/internal/events"
+	"github.com/ajah/core/internal/flagging"
 	"github.com/ajah/core/internal/masking"
 	"github.com/ajah/core/internal/proxy"
 	"github.com/ajah/core/internal/sessions"
@@ -105,6 +106,9 @@ func run() error {
 	// 8. Scorer HTTP client (best-effort; never fails the main pipeline) --------
 	scorerClient := &http.Client{Timeout: 10 * time.Second}
 
+	// 8b. Risk flagger (async; never blocks the response path) -----------------
+	flagger := flagging.New(cfg.ScorerURL, logger)
+
 	// 9. Session accumulator ---------------------------------------------------
 	acc := sessions.New(rdb, writer, logger)
 	acc.SetSessionTimeout(time.Duration(cfg.SessionTimeout) * time.Second)
@@ -143,28 +147,63 @@ func run() error {
 			scoreCancel()
 		}
 
+		// Step 3b: risk flagging (async; never blocks; only for successful responses)
+		var riskFlag flagging.RiskFlag
+		if event.StatusCode == http.StatusOK {
+			flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
+			riskFlag = flagger.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, qualityScore)
+			flagCancel()
+
+			if riskFlag.ShouldWarn {
+				day := event.Timestamp.UTC().Format("2006-01-02")
+				warnCountKey := fmt.Sprintf("warnings:daily:%s", day)
+				if incErr := rdb.Incr(ctx, warnCountKey).Err(); incErr == nil {
+					rdb.Expire(ctx, warnCountKey, dailyKeyTTL)
+				}
+			}
+			if riskFlag.RiskLevel == "high" {
+				wi := warningItem{
+					RequestID:         riskFlag.RequestID,
+					SessionID:         riskFlag.SessionID,
+					RiskLevel:         riskFlag.RiskLevel,
+					HallucinationRisk: riskFlag.HallucinationRisk,
+					GroundingScore:    riskFlag.GroundingScore,
+					Reasons:           riskFlag.Reasons,
+					Timestamp:         event.Timestamp,
+				}
+				if wiJSON, marshalErr := json.Marshal(wi); marshalErr == nil {
+					rdb.LPush(ctx, "warnings:high:list", string(wiJSON))
+					rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+				}
+			}
+		}
+
 		// Step 4: write trace to ClickHouse
 		record := storage.TraceRecord{
-			TraceID:      event.RequestID,
-			RequestID:    event.RequestID,
-			UserID:       event.UserID,
-			SessionID:    event.SessionID,
-			FeatureName:  event.FeatureName,
-			AgentStep:    event.AgentStep,
-			ParentStepID: event.ParentStepID,
-			StepName:     event.StepName,
-			ToolName:     event.ToolName,
-			Provider:     event.Provider,
-			Model:        event.Model,
-			InputTokens:  event.InputTokens,
-			OutputTokens: event.OutputTokens,
-			CostUSD:      costRecord.CostUSD,
-			LatencyMs:    event.LatencyMs,
-			StatusCode:   event.StatusCode,
-			MaskedPrompt: maskResult.Masked,
-			WasPIIMasked: maskResult.WasMasked,
-			QualityScore: qualityScore,
-			Timestamp:    event.Timestamp,
+			TraceID:           event.RequestID,
+			RequestID:         event.RequestID,
+			UserID:            event.UserID,
+			SessionID:         event.SessionID,
+			FeatureName:       event.FeatureName,
+			AgentStep:         event.AgentStep,
+			ParentStepID:      event.ParentStepID,
+			StepName:          event.StepName,
+			ToolName:          event.ToolName,
+			Provider:          event.Provider,
+			Model:             event.Model,
+			InputTokens:       event.InputTokens,
+			OutputTokens:      event.OutputTokens,
+			CostUSD:           costRecord.CostUSD,
+			LatencyMs:         event.LatencyMs,
+			StatusCode:        event.StatusCode,
+			MaskedPrompt:      maskResult.Masked,
+			WasPIIMasked:      maskResult.WasMasked,
+			QualityScore:      qualityScore,
+			Timestamp:         event.Timestamp,
+			HallucinationRisk: riskFlag.HallucinationRisk,
+			GroundingScore:    riskFlag.GroundingScore,
+			RiskLevel:         riskFlag.RiskLevel,
+			ShouldWarn:        riskFlag.ShouldWarn,
 		}
 		writeErr := writer.Write(ctx, record)
 		if writeErr != nil {
@@ -263,6 +302,7 @@ func run() error {
 	r.Post("/settings", postSettingsHandler(dbStore, logger))
 	r.Get("/sessions", sessionsHandler(writer, logger))
 	r.Get("/sessions/{sessionID}", sessionDetailHandler(writer, logger))
+	r.Get("/warnings", warningsHandler(rdb, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{

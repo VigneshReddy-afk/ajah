@@ -144,7 +144,8 @@ func (w *Writer) QueryTracesBySession(ctx context.Context, sessionID string) ([]
 		       agent_step, provider, model, input_tokens, output_tokens,
 		       cost_usd, latency_ms, status_code, masked_prompt,
 		       was_pii_masked, quality_score, timestamp,
-		       parent_step_id, step_name, tool_name
+		       parent_step_id, step_name, tool_name,
+		       hallucination_risk, grounding_score, risk_level, should_warn
 		FROM traces
 		WHERE session_id = ?
 		ORDER BY timestamp ASC`, sessionID)
@@ -157,13 +158,14 @@ func (w *Writer) QueryTracesBySession(ctx context.Context, sessionID string) ([]
 	for rows.Next() {
 		var r TraceRecord
 		var inputTokens, outputTokens, statusCode int32
-		var wasPIIMasked uint8
+		var wasPIIMasked, shouldWarn uint8
 		if err := rows.Scan(
 			&r.TraceID, &r.RequestID, &r.UserID, &r.SessionID, &r.FeatureName,
 			&r.AgentStep, &r.Provider, &r.Model, &inputTokens, &outputTokens,
 			&r.CostUSD, &r.LatencyMs, &statusCode, &r.MaskedPrompt,
 			&wasPIIMasked, &r.QualityScore, &r.Timestamp,
 			&r.ParentStepID, &r.StepName, &r.ToolName,
+			&r.HallucinationRisk, &r.GroundingScore, &r.RiskLevel, &shouldWarn,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}
@@ -171,6 +173,7 @@ func (w *Writer) QueryTracesBySession(ctx context.Context, sessionID string) ([]
 		r.OutputTokens = int(outputTokens)
 		r.StatusCode = int(statusCode)
 		r.WasPIIMasked = wasPIIMasked == 1
+		r.ShouldWarn = shouldWarn == 1
 		records = append(records, r)
 	}
 	if err := rows.Err(); err != nil {

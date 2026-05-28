@@ -365,7 +365,7 @@ func TestAgentSessionIntegration(t *testing.T) {
 	}
 
 	// Allow the async pipeline to finish writing all 4 traces to the session buffer.
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	// ── Close session and flush to ClickHouse ─────────────────────────────────
 	summary, err := acc.CloseSession(ctx, sessionID)
