@@ -325,8 +325,48 @@ After sending — open **http://localhost:3000** to see your cost, quality score
 | `X-Agent-Step` | Label the step inside a session |
 | `X-Parent-Step-ID` | Build the step tree for the visual explorer |
 | `X-Request-ID` | Pass your own trace ID (returned in `X-Ajah-Request-ID`) |
+| `X-Source-Context` | Base64-encoded source document for RAG verification |
 
 All headers are optional. Omit them and Ajah still traces everything.
+
+---
+
+## 🔍 RAG Verification
+
+When your application uses retrieval-augmented generation (RAG), Ajah can verify whether the LLM response is actually grounded in your source documents.
+
+Pass your source context in the request header:
+
+```python
+import base64
+
+source_doc = "Your policy document text here..."
+encoded = base64.b64encode(source_doc.encode()).decode()
+
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": question}],
+    extra_headers={
+        "X-User-ID":        "user_1",
+        "X-Feature-Name":   "support-bot",
+        "X-Source-Context": encoded        # base64-encoded source document
+    }
+)
+```
+
+Ajah verifies each claim in the response against your source document using local sentence embeddings (`all-MiniLM-L6-v2`) and returns one of four verdicts:
+
+| Verdict | Meaning | Risk impact |
+|---|---|---|
+| `supported` | All claims grounded in source | None |
+| `partially_supported` | Some claims unverified | Medium |
+| `unsupported` | Claims not found in source | Medium |
+| `contradicted` | Response contradicts source | **Forced high** |
+
+`contradicted` responses are automatically upgraded to **high risk** in the Warnings dashboard, regardless of the hallucination score. All verdicts, grounding scores, and per-claim breakdowns are stored in ClickHouse and visible in the Traces page expanded row.
+
+> [!NOTE]
+> The source document is decoded and processed entirely on your server by the local scorer — it is never forwarded to the LLM provider. The `X-Source-Context` header is stripped before the request leaves the gateway.
 
 ---
 
