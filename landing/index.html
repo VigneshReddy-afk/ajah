@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ajah — AI observability at the edge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #050810;
+      --bg2:         #0a0f1a;
+      --bg3:         #0d1425;
+      --border:      rgba(255,255,255,0.08);
+      --border2:     rgba(255,255,255,0.05);
+      --text:        #e8eaf0;
+      --text2:       #8b92a8;
+      --text3:       #555e78;
+      --blue:        #3b82f6;
+      --blue-dim:    rgba(59,130,246,0.15);
+      --blue-border: rgba(59,130,246,0.3);
+      --green:       #10b981;
+      --green-dim:   rgba(16,185,129,0.12);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-weight: 400;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 48px;
+      height: 60px;
+      background: rgba(5,8,16,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 0.5px solid var(--border);
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 17px;
+      font-weight: 500;
+      letter-spacing: -0.01em;
+    }
+
+    .nav-logo svg {
+      flex-shrink: 0;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+
+    .nav-links a {
+      font-size: 14px;
+      color: var(--text2);
+      transition: color 0.15s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    /* ── Sections ── */
+    section {
+      width: 100%;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 48px;
+    }
+
+    /* ── Hero ── */
+    #hero {
+      padding: 96px 0 80px;
+      text-align: center;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 14px;
+      border-radius: 100px;
+      border: 0.5px solid var(--blue-border);
+      background: var(--blue-dim);
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 32px;
+    }
+
+    .badge-pill .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+
+    #hero h1 {
+      font-size: 48px;
+      font-weight: 300;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      max-width: 760px;
+      margin: 0 auto 8px;
+    }
+
+    #hero h1 em {
+      font-style: italic;
+      color: var(--blue);
+      font-weight: 300;
+    }
+
+    .hero-body {
+      font-size: 17px;
+      font-weight: 300;
+      color: var(--text2);
+      max-width: 520px;
+      margin: 24px auto 40px;
+      line-height: 1.7;
+    }
+
+    .hero-cta {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 56px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-primary:hover { opacity: 0.88; }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text2);
+      font-size: 14px;
+      font-weight: 400;
+      border: 0.5px solid var(--border);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .btn-secondary:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+
+    .terminal {
+      display: inline-block;
+      text-align: left;
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 28px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      max-width: 520px;
+      width: 100%;
+    }
+
+    .terminal .prompt { color: var(--text3); user-select: none; }
+    .terminal .cmd    { color: var(--text); }
+    .terminal .comment { color: var(--text3); }
+
+    /* ── Features ── */
+    #features {
+      padding: 88px 0;
+      border-top: 0.5px solid var(--border2);
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 14px;
+    }
+
+    .section-title {
+      font-size: 32px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+
+    .section-sub {
+      font-size: 16px;
+      font-weight: 300;
+      color: var(--text2);
+      max-width: 480px;
+    }
+
+    .section-header {
+      margin-bottom: 52px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      background: rgba(255,255,255,0.06);
+      gap: 1px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 0.5px solid var(--border);
+    }
+
+    .feature-card {
+      background: var(--bg);
+      padding: 28px 28px 32px;
+    }
+
+    .feature-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--blue-dim);
+      border: 0.5px solid var(--blue-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+    }
+
+    .feature-icon svg { color: var(--blue); }
+
+    .feature-card h3 {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .feature-card p {
+      font-size: 14px;
+      font-weight: 300;
+      color: var(--text2);
+      line-height: 1.65;
+    }
+
+    /* ── How it works ── */
+    #how {
+      padding: 88px 0;
+      border-top: 0.5px solid var(--border2);
+    }
+
+    .steps {
+      display: flex;
+      gap: 40px;
+      max-width: 760px;
+    }
+
+    .step {
+      flex: 1;
+      position: relative;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 0.5px solid var(--blue-border);
+      background: var(--blue-dim);
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .step h3 {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .step p {
+      font-size: 14px;
+      font-weight: 300;
+      color: var(--text2);
+      line-height: 1.65;
+    }
+
+    /* ── Code example ── */
+    #code {
+      padding: 88px 0;
+      border-top: 0.5px solid var(--border2);
+    }
+
+    .code-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .code-left h2 {
+      font-size: 28px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 14px;
+    }
+
+    .code-left p {
+      font-size: 14px;
+      font-weight: 300;
+      color: var(--text2);
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+
+    .provider-hints {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .hint-pill {
+      padding: 4px 12px;
+      border-radius: 100px;
+      border: 0.5px solid var(--border);
+      background: var(--bg2);
+      font-size: 12px;
+      color: var(--text3);
+      font-family: monospace;
+    }
+
+    .code-block {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 0.5px solid var(--border);
+    }
+
+    .code-block-header .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+    .dot-red    { background: #ff5f57; }
+    .dot-yellow { background: #febc2e; }
+    .dot-green  { background: #28c840; }
+
+    .code-block-filename {
+      font-size: 12px;
+      color: var(--text3);
+      margin-left: 4px;
+      font-family: monospace;
+    }
+
+    .code-block pre {
+      padding: 20px;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 12.5px;
+      line-height: 1.75;
+      overflow-x: auto;
+    }
+
+    .kw   { color: #c084fc; }
+    .fn   { color: #60a5fa; }
+    .str  { color: #34d399; }
+    .cmt  { color: var(--text3); }
+    .num  { color: #fb923c; }
+    .var  { color: var(--text); }
+
+    /* ── Providers ── */
+    #providers {
+      padding: 64px 0;
+      border-top: 0.5px solid var(--border2);
+      text-align: center;
+    }
+
+    #providers .label {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 28px;
+    }
+
+    .providers-strip {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .provider-badge {
+      padding: 6px 18px;
+      border-radius: 100px;
+      border: 0.5px solid var(--border);
+      background: var(--bg2);
+      font-size: 13px;
+      color: var(--text2);
+    }
+
+    /* ── Bottom CTA ── */
+    #cta {
+      padding: 96px 0;
+      background: var(--bg2);
+      border-top: 0.5px solid var(--border2);
+      text-align: center;
+    }
+
+    #cta h2 {
+      font-size: 36px;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 14px;
+      max-width: 540px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    #cta p {
+      font-size: 16px;
+      font-weight: 300;
+      color: var(--text2);
+      margin-bottom: 36px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      padding: 28px 48px;
+      border-top: 0.5px solid var(--border2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    footer .copy {
+      font-size: 13px;
+      color: var(--text3);
+    }
+
+    footer .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    footer .footer-links a {
+      font-size: 13px;
+      color: var(--text3);
+      transition: color 0.15s;
+    }
+
+    footer .footer-links a:hover { color: var(--text2); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      nav { padding: 0 20px; }
+      .container { padding: 0 20px; }
+      footer { padding: 24px 20px; flex-direction: column; text-align: center; }
+
+      #hero { padding: 64px 0 56px; }
+      #hero h1 { font-size: 32px; }
+
+      .features-grid { grid-template-columns: 1fr; }
+
+      .steps { flex-direction: column; gap: 32px; max-width: 100%; }
+
+      .code-layout { grid-template-columns: 1fr; gap: 32px; }
+
+      .providers-strip { gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ── -->
+<nav>
+  <a class="nav-logo" href="#">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="10.25" stroke="#3b82f6" stroke-width="0.5"/>
+      <circle cx="11" cy="11" r="5.5"   fill="none" stroke="#3b82f6" stroke-width="0.5" stroke-dasharray="2 2"/>
+      <circle cx="11" cy="11" r="1.5"   fill="#3b82f6"/>
+      <circle cx="11" cy="3"  r="1.2"   fill="#3b82f6" opacity="0.6"/>
+      <circle cx="19" cy="11" r="1.2"   fill="#3b82f6" opacity="0.4"/>
+      <circle cx="11" cy="19" r="1.2"   fill="#3b82f6" opacity="0.3"/>
+    </svg>
+    ajah
+  </a>
+  <div class="nav-links">
+    <a href="https://github.com/VigneshReddy-afk/ajah">Docs</a>
+    <a href="https://github.com/VigneshReddy-afk/ajah">Examples</a>
+    <a href="https://github.com/VigneshReddy-afk/ajah">GitHub</a>
+  </div>
+</nav>
+
+<!-- ── Hero ── -->
+<section id="hero">
+  <div class="container">
+    <div class="badge-pill">
+      <span class="dot"></span>
+      Open source · MIT license
+    </div>
+
+    <h1>
+      The observatory at the edge of your AI universe —<br>
+      <em>nothing escapes undetected.</em>
+    </h1>
+
+    <p class="hero-body">
+      A lightweight proxy that sits between your app and any LLM provider.
+      Every request scored, every hallucination flagged, every cost tracked —
+      in real time, with zero changes to your model calls.
+    </p>
+
+    <div class="hero-cta">
+      <a class="btn-primary" href="https://github.com/VigneshReddy-afk/ajah">
+        Get started
+      </a>
+      <a class="btn-secondary" href="https://github.com/VigneshReddy-afk/ajah">
+        Read the docs →
+      </a>
+    </div>
+
+    <div class="terminal">
+      <div><span class="prompt"># </span><span class="comment">clone and start in under 60 seconds</span></div>
+      <div><span class="prompt">$ </span><span class="cmd">git clone https://github.com/VigneshReddy-afk/ajah</span></div>
+      <div><span class="prompt">$ </span><span class="cmd">cd ajah</span></div>
+      <div><span class="prompt">$ </span><span class="cmd">cp .env.example .env &amp;&amp; docker-compose up -d</span></div>
+      <div>&nbsp;</div>
+      <div><span class="prompt"># </span><span class="comment">point your app at the gateway</span></div>
+      <div><span class="prompt">$ </span><span class="cmd">OPENAI_BASE_URL=http://localhost:8080/openai/v1</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ── -->
+<section id="features">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-label">Features</p>
+      <h2 class="section-title">Everything your AI stack needs to ship safely</h2>
+      <p class="section-sub">Drop-in proxy, no SDK changes. Plug in once, observe everything.</p>
+    </div>
+
+    <div class="features-grid">
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="1" y="3" width="14" height="10" rx="2"/>
+            <path d="M5 8h6M8 5v6"/>
+          </svg>
+        </div>
+        <h3>Gateway proxy</h3>
+        <p>OpenAI-compatible endpoint. Route any provider — OpenAI, Anthropic, Groq, Gemini, Grok, Mistral, Together, NVIDIA, Cohere — through a single base URL.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <circle cx="8" cy="8" r="6"/>
+            <path d="M8 5v3l2 2"/>
+          </svg>
+        </div>
+        <h3>RAG verification</h3>
+        <p>Automatically compares every response against your source documents. Flags contradictions, unsupported claims, and grounding failures before they reach users.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M8 2l1.8 3.6L14 6.6l-3 2.9.7 4.1L8 11.5l-3.7 2.1.7-4.1-3-2.9 4.2-.9z"/>
+          </svg>
+        </div>
+        <h3>Hallucination flagging</h3>
+        <p>ML scorer evaluates every response for hallucination risk and grounding quality. Cross-model verification adds a second opinion from a configurable secondary LLM.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M2 12V4l6-2 6 2v8l-6 2z"/>
+            <path d="M8 2v12"/>
+          </svg>
+        </div>
+        <h3>Agent session tracing</h3>
+        <p>Track multi-turn agent sessions end-to-end. Group traces by session ID, visualise decision chains, and replay any request on the dashboard.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M2 10L6 6l3 3 5-6"/>
+            <circle cx="14" cy="3" r="1"/>
+          </svg>
+        </div>
+        <h3>Cost attribution</h3>
+        <p>Token usage and USD cost broken down per feature, per model, per day. Set per-feature alert thresholds and receive webhook notifications when budgets are exceeded.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="3" y="2" width="10" height="12" rx="1.5"/>
+            <path d="M6 6h4M6 9h4M6 12h2"/>
+          </svg>
+        </div>
+        <h3>PII masking</h3>
+        <p>Detect and redact personally identifiable information in prompts before they leave your infrastructure. Configurable per feature, zero latency overhead.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── How it works ── -->
+<section id="how">
+  <div class="container">
+    <div class="section-header">
+      <p class="section-label">How it works</p>
+      <h2 class="section-title">Three steps, zero friction</h2>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Point your app at Ajah</h3>
+        <p>Change <code style="font-size:12px;color:var(--text3)">OPENAI_BASE_URL</code> to <code style="font-size:12px;color:var(--text3)">localhost:8080</code>. The gateway forwards every request to the real provider — your existing code is untouched.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Ajah scores in the background</h3>
+        <p>Every response is asynchronously evaluated: hallucination risk, RAG grounding, PII detection, cross-model agreement. No added latency on the hot path.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Observe on the dashboard</h3>
+        <p>Open <code style="font-size:12px;color:var(--text3)">localhost:3000</code> to see traces, warnings, costs, and session replays. Configure thresholds and webhook alerts per feature.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Code example ── -->
+<section id="code">
+  <div class="container">
+    <div class="code-layout">
+
+      <div class="code-left">
+        <p class="section-label">Integration</p>
+        <h2>One line to wire it up</h2>
+        <p>Set the base URL and send your first request. Works with any OpenAI-compatible client — Python, Node, Go, curl. Pass <code style="font-size:12px;color:var(--text3)">X-Feature-Name</code> to enable per-feature controls.</p>
+
+        <div class="provider-hints">
+          <span class="hint-pill">openai/v1</span>
+          <span class="hint-pill">anthropic</span>
+          <span class="hint-pill">groq/openai/v1</span>
+          <span class="hint-pill">together</span>
+          <span class="hint-pill">nvidia/v1</span>
+          <span class="hint-pill">cohere/v1</span>
+        </div>
+      </div>
+
+      <div class="code-block">
+        <div class="code-block-header">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+          <span class="code-block-filename">example.py</span>
+        </div>
+        <pre><span class="kw">from</span> <span class="var">openai</span> <span class="kw">import</span> <span class="var">OpenAI</span>
+
+<span class="cmt"># only change: point base_url at ajah</span>
+<span class="var">client</span> = <span class="fn">OpenAI</span>(
+    <span class="var">api_key</span>=<span class="str">"your-openai-key"</span>,
+    <span class="var">base_url</span>=<span class="str">"http://localhost:8080/openai/v1"</span>,
+)
+
+<span class="var">response</span> = <span class="var">client</span>.chat.completions.<span class="fn">create</span>(
+    <span class="var">model</span>=<span class="str">"gpt-4o"</span>,
+    <span class="var">messages</span>=[{
+        <span class="str">"role"</span>: <span class="str">"user"</span>,
+        <span class="str">"content"</span>: <span class="str">"What is the capital of France?"</span>,
+    }],
+    <span class="var">extra_headers</span>={
+        <span class="str">"X-Feature-Name"</span>: <span class="str">"fact-check"</span>,
+        <span class="str">"X-Session-ID"</span>: <span class="str">"user-session-42"</span>,
+    },
+)
+
+<span class="cmt"># response is identical — ajah scores async</span>
+<span class="fn">print</span>(<span class="var">response</span>.choices[<span class="num">0</span>].message.content)</pre>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── Providers strip ── -->
+<section id="providers">
+  <div class="container">
+    <p class="label">Works with every major provider</p>
+    <div class="providers-strip">
+      <span class="provider-badge">OpenAI</span>
+      <span class="provider-badge">Anthropic</span>
+      <span class="provider-badge">Groq</span>
+      <span class="provider-badge">Google Gemini</span>
+      <span class="provider-badge">xAI Grok</span>
+      <span class="provider-badge">Mistral</span>
+      <span class="provider-badge">Together AI</span>
+      <span class="provider-badge">NVIDIA NIM</span>
+      <span class="provider-badge">Cohere</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── Bottom CTA ── -->
+<section id="cta">
+  <div class="container">
+    <h2>Your AI infrastructure.<br>Under your control.</h2>
+    <p>Open source, self-hosted, MIT licensed. No data leaves your network.</p>
+    <div class="hero-cta">
+      <a class="btn-primary" href="https://github.com/VigneshReddy-afk/ajah">
+        Get started on GitHub
+      </a>
+      <a class="btn-secondary" href="https://github.com/VigneshReddy-afk/ajah">
+        Read the docs →
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer>
+  <span class="copy">© 2026 Ajah · MIT license</span>
+  <div class="footer-links">
+    <a href="https://github.com/VigneshReddy-afk/ajah">GitHub</a>
+    <a href="https://github.com/VigneshReddy-afk/ajah">Docs</a>
+    <a href="https://useajah.com">useajah.com</a>
+  </div>
+</footer>
+
+</body>
+</html>
