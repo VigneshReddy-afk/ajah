@@ -40,6 +40,8 @@ type TraceRecord struct {
 	RAGVerdict            string
 	RAGGroundingScore     float64
 	RAGContradictionScore float64
+	CrossModelVerdict     string
+	CrossModelAgreement   float64
 }
 
 // Writer holds a ClickHouse connection and exposes write operations.
@@ -76,7 +78,9 @@ CREATE TABLE IF NOT EXISTS traces (
     should_warn             UInt8,
     rag_verdict             String,
     rag_grounding_score     Float64,
-    rag_contradiction_score Float64
+    rag_contradiction_score Float64,
+    cross_model_verdict     String,
+    cross_model_agreement   Float64
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, user_id, feature_name)
 `
@@ -94,7 +98,9 @@ ALTER TABLE traces
     ADD COLUMN IF NOT EXISTS should_warn            UInt8   DEFAULT 0,
     ADD COLUMN IF NOT EXISTS rag_verdict            String  DEFAULT '',
     ADD COLUMN IF NOT EXISTS rag_grounding_score    Float64 DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS rag_contradiction_score Float64 DEFAULT 0
+    ADD COLUMN IF NOT EXISTS rag_contradiction_score Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS cross_model_verdict    String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS cross_model_agreement  Float64 DEFAULT 0
 `
 
 // New opens a ClickHouse connection using dsn and pings the server to verify
@@ -158,7 +164,8 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 		was_pii_masked, quality_score, timestamp,
 		parent_step_id, step_name, tool_name,
 		hallucination_risk, grounding_score, risk_level, should_warn,
-		rag_verdict, rag_grounding_score, rag_contradiction_score
+		rag_verdict, rag_grounding_score, rag_contradiction_score,
+		cross_model_verdict, cross_model_agreement
 	)`)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -193,6 +200,8 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 			r.RAGVerdict,
 			r.RAGGroundingScore,
 			r.RAGContradictionScore,
+			r.CrossModelVerdict,
+			r.CrossModelAgreement,
 		); err != nil {
 			return fmt.Errorf("append record %q: %w", r.TraceID, err)
 		}
@@ -216,7 +225,8 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 		       was_pii_masked, quality_score, timestamp,
 		       parent_step_id, step_name, tool_name,
 		       hallucination_risk, grounding_score, risk_level, should_warn,
-		       rag_verdict, rag_grounding_score, rag_contradiction_score
+		       rag_verdict, rag_grounding_score, rag_contradiction_score,
+		       cross_model_verdict, cross_model_agreement
 		FROM traces
 		ORDER BY timestamp DESC
 		LIMIT %d`, limit))
@@ -243,6 +253,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 			&r.ParentStepID, &r.StepName, &r.ToolName,
 			&r.HallucinationRisk, &r.GroundingScore, &r.RiskLevel, &shouldWarn,
 			&r.RAGVerdict, &r.RAGGroundingScore, &r.RAGContradictionScore,
+			&r.CrossModelVerdict, &r.CrossModelAgreement,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}

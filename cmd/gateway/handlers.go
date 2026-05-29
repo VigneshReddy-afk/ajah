@@ -50,10 +50,12 @@ type traceResponse struct {
 	WasPIIMasked      bool      `json:"was_pii_masked"`
 	QualityScore      float64   `json:"quality_score"`
 	Timestamp         time.Time `json:"timestamp"`
-	HallucinationRisk float64   `json:"hallucination_risk"`
-	GroundingScore    float64   `json:"grounding_score"`
-	RiskLevel         string    `json:"risk_level"`
-	ShouldWarn        bool      `json:"should_warn"`
+	HallucinationRisk   float64   `json:"hallucination_risk"`
+	GroundingScore      float64   `json:"grounding_score"`
+	RiskLevel           string    `json:"risk_level"`
+	ShouldWarn          bool      `json:"should_warn"`
+	CrossModelVerdict   string    `json:"cross_model_verdict"`
+	CrossModelAgreement float64   `json:"cross_model_agreement"`
 }
 
 // warningItem is the JSON shape of a single high-risk response stored in Redis
@@ -103,10 +105,12 @@ func tracesHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc 
 				WasPIIMasked:      rec.WasPIIMasked,
 				QualityScore:      rec.QualityScore,
 				Timestamp:         rec.Timestamp,
-				HallucinationRisk: rec.HallucinationRisk,
-				GroundingScore:    rec.GroundingScore,
-				RiskLevel:         rec.RiskLevel,
-				ShouldWarn:        rec.ShouldWarn,
+				HallucinationRisk:   rec.HallucinationRisk,
+				GroundingScore:      rec.GroundingScore,
+				RiskLevel:           rec.RiskLevel,
+				ShouldWarn:          rec.ShouldWarn,
+				CrossModelVerdict:   rec.CrossModelVerdict,
+				CrossModelAgreement: rec.CrossModelAgreement,
 			}
 		}
 
@@ -288,10 +292,12 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 				WasPIIMasked:      t.WasPIIMasked,
 				QualityScore:      t.QualityScore,
 				Timestamp:         t.Timestamp,
-				HallucinationRisk: t.HallucinationRisk,
-				GroundingScore:    t.GroundingScore,
-				RiskLevel:         t.RiskLevel,
-				ShouldWarn:        t.ShouldWarn,
+				HallucinationRisk:   t.HallucinationRisk,
+				GroundingScore:      t.GroundingScore,
+				RiskLevel:           t.RiskLevel,
+				ShouldWarn:          t.ShouldWarn,
+				CrossModelVerdict:   t.CrossModelVerdict,
+				CrossModelAgreement: t.CrossModelAgreement,
 			}
 		}
 

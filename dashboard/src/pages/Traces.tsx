@@ -25,20 +25,22 @@ interface Row {
   ragSupported: string[]
   ragUnsupported: string[]
   ragContradicted: string[]
+  crossModelVerdict: string
+  crossModelAgreement: number
 }
 
 // ── Mock data ──────────────────────────────────────────────────────────────
 
 const MOCK_ROWS: Row[] = [
-  { id: '1', ts: '12:48:40', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000660, latency: 1506, pii: false, quality: 0.90, prompt: 'What is the capital of France?',              flags: [],                                  ragVerdict: 'not_applicable', ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [] },
-  { id: '2', ts: '12:42:59', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000660, latency: 1459, pii: false, quality: 0.00, prompt: '',                                             flags: ['empty_response'],                  ragVerdict: 'not_applicable', ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [] },
-  { id: '3', ts: '11:25:42', user: 'user_2', feature: 'summarize', model: 'gpt-4o',        cost: 0.002340, latency: 2341, pii: true,  quality: 0.85, prompt: 'Summarize the following document for me…',    flags: [],                                  ragVerdict: 'supported',      ragGrounding: 0.91, ragContradiction: 0.02, ragSupported: ['The report covers Q3 results.'], ragUnsupported: [], ragContradicted: [] },
-  { id: '4', ts: '10:15:33', user: 'user_3', feature: 'classify',  model: 'claude-3-5',    cost: 0.001200, latency:  890, pii: false, quality: 0.95, prompt: 'Classify the sentiment of: Great product!',   flags: [],                                  ragVerdict: 'not_applicable', ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [] },
-  { id: '5', ts: '09:45:12', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000550, latency: 1100, pii: false, quality: 0.88, prompt: 'How does machine learning work?',              flags: [],                                  ragVerdict: 'partially_supported', ragGrounding: 0.61, ragContradiction: 0.08, ragSupported: ['ML uses statistical models.'], ragUnsupported: ['Quantum effects enable learning.'], ragContradicted: [] },
-  { id: '6', ts: '09:12:05', user: 'user_4', feature: 'translate', model: 'mistral',       cost: 0.000890, latency:  750, pii: true,  quality: 0.92, prompt: 'Translate: Contact me at [EMAIL MASKED]',     flags: ['pii_detected'],                    ragVerdict: 'not_applicable', ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [] },
-  { id: '7', ts: '08:33:44', user: 'user_2', feature: 'summarize', model: 'gpt-4o',        cost: 0.001800, latency: 1890, pii: false, quality: 0.78, prompt: 'Summarize this article about AI safety…',     flags: [],                                  ragVerdict: 'contradicted',   ragGrounding: 0.22, ragContradiction: 0.81, ragSupported: [], ragUnsupported: [], ragContradicted: ['The article states AI poses no risk.'] },
-  { id: '8', ts: '08:01:22', user: 'user_5', feature: 'chat',      model: 'gemini-1.5',    cost: 0.000420, latency:  650, pii: false, quality: 0.93, prompt: 'Write a haiku about autumn.',                  flags: [],                                  ragVerdict: 'not_applicable', ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [] },
-  { id: '9', ts: '22:04:13', user: 'user_1', feature: 'chat',      model: 'gpt-4o',        cost: 0.000000, latency:  875, pii: true,  quality: 0.00, prompt: 'Call me at [PHONE MASKED]',                   flags: ['pii_detected', 'empty_response'],  ragVerdict: 'not_applicable', ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [] },
+  { id: '1', ts: '12:48:40', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000660, latency: 1506, pii: false, quality: 0.90, prompt: 'What is the capital of France?',              flags: [],                                  ragVerdict: 'not_applicable',     ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [], crossModelVerdict: 'agree',    crossModelAgreement: 0.92 },
+  { id: '2', ts: '12:42:59', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000660, latency: 1459, pii: false, quality: 0.00, prompt: '',                                             flags: ['empty_response'],                  ragVerdict: 'not_applicable',     ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [], crossModelVerdict: '',         crossModelAgreement: 0 },
+  { id: '3', ts: '11:25:42', user: 'user_2', feature: 'summarize', model: 'gpt-4o',        cost: 0.002340, latency: 2341, pii: true,  quality: 0.85, prompt: 'Summarize the following document for me…',    flags: [],                                  ragVerdict: 'supported',          ragGrounding: 0.91, ragContradiction: 0.02, ragSupported: ['The report covers Q3 results.'], ragUnsupported: [], ragContradicted: [], crossModelVerdict: '',         crossModelAgreement: 0 },
+  { id: '4', ts: '10:15:33', user: 'user_3', feature: 'classify',  model: 'claude-3-5',    cost: 0.001200, latency:  890, pii: false, quality: 0.95, prompt: 'Classify the sentiment of: Great product!',   flags: [],                                  ragVerdict: 'not_applicable',     ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [], crossModelVerdict: '',         crossModelAgreement: 0 },
+  { id: '5', ts: '09:45:12', user: 'user_1', feature: 'chat',      model: 'llama-3.3-70b', cost: 0.000550, latency: 1100, pii: false, quality: 0.88, prompt: 'How does machine learning work?',              flags: [],                                  ragVerdict: 'partially_supported', ragGrounding: 0.61, ragContradiction: 0.08, ragSupported: ['ML uses statistical models.'], ragUnsupported: ['Quantum effects enable learning.'], ragContradicted: [], crossModelVerdict: 'partial',  crossModelAgreement: 0.65 },
+  { id: '6', ts: '09:12:05', user: 'user_4', feature: 'translate', model: 'mistral',       cost: 0.000890, latency:  750, pii: true,  quality: 0.92, prompt: 'Translate: Contact me at [EMAIL MASKED]',     flags: ['pii_detected'],                    ragVerdict: 'not_applicable',     ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [], crossModelVerdict: '',         crossModelAgreement: 0 },
+  { id: '7', ts: '08:33:44', user: 'user_2', feature: 'summarize', model: 'gpt-4o',        cost: 0.001800, latency: 1890, pii: false, quality: 0.78, prompt: 'Summarize this article about AI safety…',     flags: [],                                  ragVerdict: 'contradicted',       ragGrounding: 0.22, ragContradiction: 0.81, ragSupported: [], ragUnsupported: [], ragContradicted: ['The article states AI poses no risk.'], crossModelVerdict: 'disagree', crossModelAgreement: 0.28 },
+  { id: '8', ts: '08:01:22', user: 'user_5', feature: 'chat',      model: 'gemini-1.5',    cost: 0.000420, latency:  650, pii: false, quality: 0.93, prompt: 'Write a haiku about autumn.',                  flags: [],                                  ragVerdict: 'not_applicable',     ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [], crossModelVerdict: '',         crossModelAgreement: 0 },
+  { id: '9', ts: '22:04:13', user: 'user_1', feature: 'chat',      model: 'gpt-4o',        cost: 0.000000, latency:  875, pii: true,  quality: 0.00, prompt: 'Call me at [PHONE MASKED]',                   flags: ['pii_detected', 'empty_response'],  ragVerdict: 'not_applicable',     ragGrounding: 0,    ragContradiction: 0,    ragSupported: [], ragUnsupported: [], ragContradicted: [], crossModelVerdict: '',         crossModelAgreement: 0 },
 ]
 
 function fromAPI(t: TraceRecord): Row {
@@ -60,6 +62,8 @@ function fromAPI(t: TraceRecord): Row {
     ragSupported: t.rag_supported_claims ?? [],
     ragUnsupported: t.rag_unsupported_claims ?? [],
     ragContradicted: t.rag_contradicted_claims ?? [],
+    crossModelVerdict: t.cross_model_verdict ?? '',
+    crossModelAgreement: t.cross_model_agreement ?? 0,
   }
 }
 
@@ -93,6 +97,20 @@ function RAGBadge({ verdict, large = false }: { verdict: string; large?: boolean
       return <span style={{ ...base, color: '#A32D2D', background: 'rgba(163,45,45,0.12)' }}>✗ ungrounded</span>
     case 'contradicted':
       return <span style={{ ...base, color: '#fff', background: '#A32D2D' }}>⚠ contradicted</span>
+    default:
+      return <span style={{ ...base, color: 'var(--color-text-tertiary)', background: 'transparent' }}>—</span>
+  }
+}
+
+function CrossModelBadge({ verdict, large = false }: { verdict: string; large?: boolean }): ReactNode {
+  const base: CSSProperties = { ...badgeBase, fontSize: large ? 'var(--sz-sm)' : 'var(--sz-xs)', padding: large ? '4px 10px' : '2px 7px' }
+  switch (verdict) {
+    case 'agree':
+      return <span style={{ ...base, color: '#0F6E56', background: 'rgba(15,110,86,0.12)' }}>agree</span>
+    case 'partial':
+      return <span style={{ ...base, color: '#854F0B', background: 'rgba(133,79,11,0.12)' }}>partial</span>
+    case 'disagree':
+      return <span style={{ ...base, color: '#A32D2D', background: 'rgba(163,45,45,0.12)' }}>disagree</span>
     default:
       return <span style={{ ...base, color: 'var(--color-text-tertiary)', background: 'transparent' }}>—</span>
   }
@@ -208,6 +226,43 @@ function RAGSection({ row }: { row: Row }) {
   )
 }
 
+// ── Cross-model Expanded Section ───────────────────────────────────────────
+
+function CrossModelSection({ row }: { row: Row }) {
+  const { crossModelVerdict, crossModelAgreement, model } = row
+  if (!crossModelVerdict) return null
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <p style={{ fontSize: 'var(--sz-label)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>
+        Cross-model Verification
+      </p>
+      <div style={{
+        background: 'var(--color-background-secondary)',
+        border: '0.5px solid var(--color-border-tertiary)',
+        borderRadius: 6,
+        padding: '12px 14px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+          <CrossModelBadge verdict={crossModelVerdict} large />
+          <div>
+            <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agreement </span>
+            <span style={{
+              fontSize: 'var(--sz-sm)', fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+              color: crossModelAgreement >= 0.8 ? '#0F6E56' : crossModelAgreement >= 0.5 ? '#854F0B' : '#A32D2D',
+            }}>
+              {crossModelAgreement.toFixed(2)}
+            </span>
+          </div>
+          <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', fontFamily: 'monospace' }}>
+            Primary: {model}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function Traces() {
@@ -241,7 +296,7 @@ export default function Traces() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Timestamp', 'User', 'Feature', 'Model', 'Cost', 'Latency', 'PII', 'Quality', 'RAG'].map(h => (
+                {['Timestamp', 'User', 'Feature', 'Model', 'Cost', 'Latency', 'PII', 'Quality', 'RAG', 'Cross-model'].map(h => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -249,7 +304,7 @@ export default function Traces() {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: '40px 14px', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
+                  <td colSpan={10} style={{ padding: '40px 14px', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>
                     No traces yet
                   </td>
                 </tr>
@@ -319,12 +374,16 @@ export default function Traces() {
                     <td style={tdStyle}>
                       <RAGBadge verdict={row.ragVerdict} />
                     </td>
+                    {/* Cross-model */}
+                    <td style={tdStyle}>
+                      <CrossModelBadge verdict={row.crossModelVerdict} />
+                    </td>
                   </tr>
 
                   {/* Expanded row */}
                   {expanded === row.id && (
                     <tr>
-                      <td colSpan={9} style={{
+                      <td colSpan={10} style={{
                         padding: '16px 14px 18px',
                         background: 'var(--color-background-primary)',
                         borderBottom: '0.5px solid var(--color-border-tertiary)',
@@ -364,6 +423,7 @@ export default function Traces() {
                         )}
 
                         <RAGSection row={row} />
+                        <CrossModelSection row={row} />
                       </td>
                     </tr>
                   )}

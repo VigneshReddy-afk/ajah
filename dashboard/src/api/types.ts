@@ -38,6 +38,8 @@ export interface TraceRecord {
   rag_supported_claims?: string[]
   rag_unsupported_claims?: string[]
   rag_contradicted_claims?: string[]
+  cross_model_verdict?: string
+  cross_model_agreement?: number
 }
 
 export interface SessionRecord {
@@ -91,6 +93,10 @@ export interface FeatureSetting {
   cost_alert_threshold_usd: number
   pii_masking_enabled: boolean
   webhook_url: string
+  cross_model_enabled?: boolean
+  cross_model_provider_url?: string
+  cross_model_api_key?: string
+  cross_model_model?: string
 }
 
 export interface ProviderKey {

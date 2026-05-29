@@ -169,6 +169,9 @@ export default function Warnings() {
     ? `${(totalToday / totalTraces * 100).toFixed(1)}%`
     : totalToday > 0 ? `${totalToday}` : '—'
   const ragContradictCount = warnings.filter(isRAGIssue).length
+  const crossModelDisagreeCount = warnings.filter(w =>
+    w.reasons.some(r => r.includes('Cross-model'))
+  ).length
 
   const displayed = ragOnly ? warnings.filter(isRAGIssue) : warnings
 
@@ -183,11 +186,12 @@ export default function Warnings() {
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* ── Metric cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-        <MetricCard label="High risk today"          value={String(highCount)}       color={HIGH_COLOR} />
-        <MetricCard label="Medium risk today"        value={String(medCount)}        color={MED_COLOR}  />
-        <MetricCard label="Flag rate"                value={flagRate}                color="var(--color-text-primary)" />
-        <MetricCard label="RAG contradictions today" value={String(ragContradictCount)} color={HIGH_COLOR} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+        <MetricCard label="High risk today"               value={String(highCount)}              color={HIGH_COLOR} />
+        <MetricCard label="Medium risk today"             value={String(medCount)}               color={MED_COLOR}  />
+        <MetricCard label="Flag rate"                     value={flagRate}                       color="var(--color-text-primary)" />
+        <MetricCard label="RAG contradictions today"      value={String(ragContradictCount)}     color={HIGH_COLOR} />
+        <MetricCard label="Cross-model disagreements"     value={String(crossModelDisagreeCount)} color={MED_COLOR} />
       </div>
 
       {/* ── Filter bar ── */}

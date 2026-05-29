@@ -15,6 +15,7 @@ import (
 
 	"github.com/ajah/core/internal/attribution"
 	"github.com/ajah/core/internal/config"
+	"github.com/ajah/core/internal/crossmodel"
 	"github.com/ajah/core/internal/db"
 	"github.com/ajah/core/internal/events"
 	"github.com/ajah/core/internal/flagging"
@@ -113,6 +114,9 @@ func run() error {
 	flagger := flagging.New(cfg.ScorerURL, logger)
 	webhookClient := &http.Client{Timeout: time.Duration(cfg.WebhookTimeoutSeconds) * time.Second}
 
+	// 8c. Cross-model verifier (opt-in per feature) ----------------------------
+	verifier := crossmodel.New(cfg.ScorerURL, logger)
+
 	// 9. Session accumulator ---------------------------------------------------
 	acc := sessions.New(rdb, writer, logger)
 	acc.SetSessionTimeout(time.Duration(cfg.SessionTimeout) * time.Second)
@@ -155,10 +159,41 @@ func run() error {
 
 		// Step 3b: risk flagging (async; never blocks; only for successful responses)
 		var riskFlag flagging.RiskFlag
+		var crossModelVerdict string
+		var crossModelAgreement float64
 		if event.StatusCode == http.StatusOK {
 			flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
 			riskFlag = flagger.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, qualityScore, scorerOut.RAGVerdict)
 			flagCancel()
+
+			// Step 3c: cross-model verification (opt-in per feature; best-effort)
+			if event.FeatureName != "" {
+				if fs := dbStore.FeatureSettingFor(event.FeatureName); fs != nil && fs.CrossModelEnabled &&
+					fs.CrossModelProviderURL != "" && fs.CrossModelAPIKey != "" && fs.CrossModelModel != "" {
+					verifyCtx, verifyCancel := context.WithTimeout(ctx, 30*time.Second)
+					result, verifyErr := verifier.Verify(
+						verifyCtx,
+						event.Prompt, event.Response, event.Model,
+						fs.CrossModelProviderURL, fs.CrossModelAPIKey, fs.CrossModelModel,
+					)
+					verifyCancel()
+					if verifyErr != nil {
+						logger.Warn("cross-model: verification failed",
+							zap.String("feature", event.FeatureName), zap.Error(verifyErr))
+					} else if result != nil {
+						crossModelVerdict = result.Verdict
+						crossModelAgreement = result.AgreementScore
+						if result.Verdict != "agree" {
+							reason := fmt.Sprintf("Cross-model disagreement detected (agreement: %.2f)", result.AgreementScore)
+							riskFlag.Reasons = append(riskFlag.Reasons, reason)
+							if riskFlag.RiskLevel == "low" {
+								riskFlag.RiskLevel = "medium"
+								riskFlag.ShouldWarn = true
+							}
+						}
+					}
+				}
+			}
 
 			if riskFlag.ShouldWarn {
 				day := event.Timestamp.UTC().Format("2006-01-02")
@@ -232,6 +267,8 @@ func run() error {
 			RAGVerdict:            scorerOut.RAGVerdict,
 			RAGGroundingScore:     scorerOut.RAGGroundingScore,
 			RAGContradictionScore: scorerOut.RAGContradictionScore,
+			CrossModelVerdict:     crossModelVerdict,
+			CrossModelAgreement:   crossModelAgreement,
 		}
 		writeErr := writer.Write(ctx, record)
 		if writeErr != nil {

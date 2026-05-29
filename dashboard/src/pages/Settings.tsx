@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconEye, IconEyeOff } from '@tabler/icons-react'
 import { fetchJSON, postJSON } from '../api/client'
@@ -23,10 +23,10 @@ const PROVIDER_ORDER = Object.keys(PROVIDER_META)
 const DEFAULT_PROVIDERS: ProviderKey[] = PROVIDER_ORDER.map(p => ({ provider: p, api_key: '' }))
 
 const MOCK_FEATURES: FeatureSetting[] = [
-  { feature_name: 'chat',      cost_alert_threshold_usd: 1.00, pii_masking_enabled: true,  webhook_url: '' },
-  { feature_name: 'summarize', cost_alert_threshold_usd: 2.00, pii_masking_enabled: true,  webhook_url: '' },
-  { feature_name: 'translate', cost_alert_threshold_usd: 0.50, pii_masking_enabled: false, webhook_url: '' },
-  { feature_name: 'classify',  cost_alert_threshold_usd: 0.50, pii_masking_enabled: false, webhook_url: '' },
+  { feature_name: 'chat',      cost_alert_threshold_usd: 1.00, pii_masking_enabled: true,  webhook_url: '', cross_model_enabled: false, cross_model_provider_url: '', cross_model_api_key: '', cross_model_model: '' },
+  { feature_name: 'summarize', cost_alert_threshold_usd: 2.00, pii_masking_enabled: true,  webhook_url: '', cross_model_enabled: false, cross_model_provider_url: '', cross_model_api_key: '', cross_model_model: '' },
+  { feature_name: 'translate', cost_alert_threshold_usd: 0.50, pii_masking_enabled: false, webhook_url: '', cross_model_enabled: false, cross_model_provider_url: '', cross_model_api_key: '', cross_model_model: '' },
+  { feature_name: 'classify',  cost_alert_threshold_usd: 0.50, pii_masking_enabled: false, webhook_url: '', cross_model_enabled: false, cross_model_provider_url: '', cross_model_api_key: '', cross_model_model: '' },
 ]
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -47,6 +47,11 @@ const inputStyle: CSSProperties = {
   fontSize: 'var(--sz-base)',
   color: 'var(--color-text-primary)',
   outline: 'none',
+}
+
+const inputPlain: CSSProperties = {
+  ...inputStyle,
+  padding: '7px 10px',
 }
 
 const labelStyle: CSSProperties = {
@@ -96,10 +101,19 @@ export default function SettingsPage() {
   const [features, setFeatures] = useState<FeatureSetting[]>(MOCK_FEATURES)
   const [providers, setProviders] = useState<ProviderKey[]>(DEFAULT_PROVIDERS)
   const [visible, setVisible] = useState<Record<string, boolean>>({})
+  const [configuring, setConfiguring] = useState<number | null>(null)
 
   useEffect(() => {
     if (!data) return
-    if (data.feature_settings?.length) setFeatures(data.feature_settings)
+    if (data.feature_settings?.length) {
+      setFeatures(data.feature_settings.map(f => ({
+        cross_model_enabled: false,
+        cross_model_provider_url: '',
+        cross_model_api_key: '',
+        cross_model_model: '',
+        ...f,
+      })))
+    }
     const merged = DEFAULT_PROVIDERS.map(def => {
       const saved = data.provider_keys?.find(k => k.provider === def.provider)
       return saved ?? def
@@ -117,8 +131,8 @@ export default function SettingsPage() {
   const updateProvider = (provider: string, api_key: string) =>
     setProviders(prev => prev.map(p => p.provider === provider ? { ...p, api_key } : p))
 
-  const toggleVisible = (p: string) =>
-    setVisible(prev => ({ ...prev, [p]: !prev[p] }))
+  const toggleVisible = (key: string) =>
+    setVisible(prev => ({ ...prev, [key]: !prev[key] }))
 
   const updateFeature = (i: number, patch: Partial<FeatureSetting>) =>
     setFeatures(prev => prev.map((f, j) => j === i ? { ...f, ...patch } : f))
@@ -126,7 +140,7 @@ export default function SettingsPage() {
   if (isLoading) return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
 
   return (
-    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 900 }}>
+    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 960 }}>
 
       {/* ── Provider API Keys ── */}
       <section>
@@ -208,86 +222,252 @@ export default function SettingsPage() {
                 <th style={thStyle}>Cost alert threshold</th>
                 <th style={thStyle}>PII masking</th>
                 <th style={thStyle}>Status</th>
+                <th style={thStyle}>Cross-model</th>
                 <th style={{ ...thStyle, width: 60 }}></th>
               </tr>
             </thead>
             <tbody>
               {features.map((f, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}>
-                    <input
-                      value={f.feature_name}
-                      onChange={e => updateFeature(i, { feature_name: e.target.value })}
-                      placeholder="feature name"
-                      style={{ ...inputStyle, padding: '6px 10px', width: 140 }}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>$</span>
+                <Fragment key={i}>
+                  <tr>
+                    <td style={tdStyle}>
                       <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={f.cost_alert_threshold_usd}
-                        onChange={e => updateFeature(i, { cost_alert_threshold_usd: parseFloat(e.target.value) || 0 })}
-                        style={{ ...inputStyle, padding: '6px 10px', width: 90 }}
+                        value={f.feature_name}
+                        onChange={e => updateFeature(i, { feature_name: e.target.value })}
+                        placeholder="feature name"
+                        style={{ ...inputStyle, padding: '6px 10px', width: 140 }}
                       />
-                      <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-sm)' }}>/ day</span>
-                    </div>
-                  </td>
-                  <td style={tdStyle}>
-                    <button
-                      type="button"
-                      onClick={() => updateFeature(i, { pii_masking_enabled: !f.pii_masking_enabled })}
-                      style={{
-                        width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
-                        background: f.pii_masking_enabled ? '#185FA5' : 'var(--color-background-primary)',
-                        position: 'relative', transition: 'background 0.15s',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <span style={{
-                        position: 'absolute', top: 2, width: 16, height: 16,
-                        borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-                        left: f.pii_masking_enabled ? 18 : 2,
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                      }} />
-                    </button>
-                  </td>
-                  <td style={tdStyle}>
-                    {f.feature_name ? (
-                      <span style={{
-                        fontSize: 'var(--sz-xs)', fontWeight: 500,
-                        color: '#0F6E56',
-                        background: 'rgba(15,110,86,0.12)',
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                      }}>Active</span>
-                    ) : (
-                      <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
-                    <button
-                      type="button"
-                      onClick={() => setFeatures(prev => prev.filter((_, j) => j !== i))}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
-                        fontSize: 'var(--sz-sm)', color: 'var(--color-text-tertiary)',
-                        transition: 'color 0.12s',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#A32D2D')}
-                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={f.cost_alert_threshold_usd}
+                          onChange={e => updateFeature(i, { cost_alert_threshold_usd: parseFloat(e.target.value) || 0 })}
+                          style={{ ...inputStyle, padding: '6px 10px', width: 90 }}
+                        />
+                        <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-sm)' }}>/ day</span>
+                      </div>
+                    </td>
+                    <td style={tdStyle}>
+                      <button
+                        type="button"
+                        onClick={() => updateFeature(i, { pii_masking_enabled: !f.pii_masking_enabled })}
+                        style={{
+                          width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                          background: f.pii_masking_enabled ? '#185FA5' : 'var(--color-background-primary)',
+                          position: 'relative', transition: 'background 0.15s',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span style={{
+                          position: 'absolute', top: 2, width: 16, height: 16,
+                          borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                          left: f.pii_masking_enabled ? 18 : 2,
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                        }} />
+                      </button>
+                    </td>
+                    <td style={tdStyle}>
+                      {f.feature_name ? (
+                        <span style={{
+                          fontSize: 'var(--sz-xs)', fontWeight: 500,
+                          color: '#0F6E56',
+                          background: 'rgba(15,110,86,0.12)',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                        }}>Active</span>
+                      ) : (
+                        <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+                      )}
+                    </td>
+                    <td style={tdStyle}>
+                      <button
+                        type="button"
+                        onClick={() => setConfiguring(configuring === i ? null : i)}
+                        style={{
+                          background: 'none',
+                          border: `0.5px solid ${configuring === i ? '#185FA5' : 'var(--color-border-secondary)'}`,
+                          borderRadius: 5,
+                          cursor: 'pointer',
+                          padding: '3px 10px',
+                          fontSize: 'var(--sz-xs)',
+                          fontWeight: 500,
+                          color: configuring === i ? '#185FA5' : 'var(--color-text-tertiary)',
+                          transition: 'all 0.12s',
+                        }}
+                      >
+                        {f.cross_model_enabled ? '● On' : 'Configure'}
+                      </button>
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFeatures(prev => prev.filter((_, j) => j !== i))
+                          if (configuring === i) setConfiguring(null)
+                        }}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+                          fontSize: 'var(--sz-sm)', color: 'var(--color-text-tertiary)',
+                          transition: 'color 0.12s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#A32D2D')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-tertiary)')}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+
+                  {/* ── Cross-model expand ── */}
+                  {configuring === i && (
+                    <tr>
+                      <td colSpan={6} style={{
+                        padding: '14px 16px 16px',
+                        background: 'rgba(24,95,165,0.04)',
+                        borderBottom: '0.5px solid var(--color-border-tertiary)',
+                        borderLeft: '2px solid #185FA5',
+                      }}>
+                        <p style={{
+                          fontSize: 'var(--sz-xs)', fontWeight: 600, color: '#185FA5',
+                          textTransform: 'uppercase', letterSpacing: '0.06em',
+                          margin: '0 0 12px',
+                        }}>
+                          Cross-model Verification
+                        </p>
+
+                        {/* Enable toggle row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                          <button
+                            type="button"
+                            onClick={() => updateFeature(i, { cross_model_enabled: !f.cross_model_enabled })}
+                            style={{
+                              width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
+                              background: f.cross_model_enabled ? '#185FA5' : 'var(--color-background-primary)',
+                              position: 'relative', transition: 'background 0.15s', flexShrink: 0,
+                            }}
+                          >
+                            <span style={{
+                              position: 'absolute', top: 2, width: 16, height: 16,
+                              borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                              left: f.cross_model_enabled ? 18 : 2,
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                            }} />
+                          </button>
+                          <span style={{ fontSize: 'var(--sz-base)', color: 'var(--color-text-secondary)', fontWeight: f.cross_model_enabled ? 500 : 400 }}>
+                            Enable cross-model verification
+                          </span>
+                          {f.cross_model_enabled && (
+                            <span style={{
+                              fontSize: 'var(--sz-xs)', fontWeight: 600,
+                              color: '#0F6E56', background: 'rgba(15,110,86,0.12)',
+                              padding: '1px 7px', borderRadius: 4,
+                            }}>
+                              Enabled
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Config fields */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                          {/* Provider URL */}
+                          <div>
+                            <label style={labelStyle}>Secondary provider URL</label>
+                            <input
+                              type="text"
+                              placeholder="https://api.groq.com/openai/v1"
+                              value={f.cross_model_provider_url ?? ''}
+                              onChange={e => updateFeature(i, { cross_model_provider_url: e.target.value })}
+                              style={inputPlain}
+                              disabled={!f.cross_model_enabled}
+                            />
+                          </div>
+
+                          {/* API key */}
+                          <div>
+                            <label style={labelStyle}>Secondary API key</label>
+                            <div style={{ position: 'relative' }}>
+                              <input
+                                type={visible[`cm_key_${i}`] ? 'text' : 'password'}
+                                autoComplete="off"
+                                placeholder="sk-..."
+                                value={f.cross_model_api_key ?? ''}
+                                onChange={e => updateFeature(i, { cross_model_api_key: e.target.value })}
+                                style={inputStyle}
+                                disabled={!f.cross_model_enabled}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => toggleVisible(`cm_key_${i}`)}
+                                style={{
+                                  position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                                  background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                                  color: 'var(--color-text-tertiary)',
+                                  display: 'flex', alignItems: 'center',
+                                }}
+                              >
+                                {visible[`cm_key_${i}`]
+                                  ? <IconEyeOff size={14} strokeWidth={1.75} />
+                                  : <IconEye size={14} strokeWidth={1.75} />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Model */}
+                          <div>
+                            <label style={labelStyle}>Secondary model</label>
+                            <input
+                              type="text"
+                              placeholder="llama-3.3-70b-versatile"
+                              value={f.cross_model_model ?? ''}
+                              onChange={e => updateFeature(i, { cross_model_model: e.target.value })}
+                              style={inputPlain}
+                              disabled={!f.cross_model_enabled}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                          <button
+                            type="button"
+                            onClick={save}
+                            disabled={mutation.isPending}
+                            style={{
+                              background: '#185FA5', color: '#fff', border: 'none',
+                              borderRadius: 6, padding: '6px 16px',
+                              fontSize: 'var(--sz-sm)', fontWeight: 500,
+                              cursor: mutation.isPending ? 'default' : 'pointer',
+                              opacity: mutation.isPending ? 0.6 : 1,
+                            }}
+                          >
+                            {mutation.isPending ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfiguring(null)}
+                            style={{
+                              background: 'none', border: '0.5px solid var(--color-border-secondary)',
+                              borderRadius: 6, padding: '6px 16px',
+                              fontSize: 'var(--sz-sm)', color: 'var(--color-text-tertiary)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
+
               {features.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-text-tertiary)', padding: '24px 14px' }}>
+                  <td colSpan={6} style={{ ...tdStyle, textAlign: 'center', color: 'var(--color-text-tertiary)', padding: '24px 14px' }}>
                     No features configured
                   </td>
                 </tr>
@@ -298,7 +478,16 @@ export default function SettingsPage() {
 
         <button
           type="button"
-          onClick={() => setFeatures(prev => [...prev, { feature_name: '', cost_alert_threshold_usd: 1.0, pii_masking_enabled: true, webhook_url: '' }])}
+          onClick={() => setFeatures(prev => [...prev, {
+            feature_name: '',
+            cost_alert_threshold_usd: 1.0,
+            pii_masking_enabled: true,
+            webhook_url: '',
+            cross_model_enabled: false,
+            cross_model_provider_url: '',
+            cross_model_api_key: '',
+            cross_model_model: '',
+          }])}
           style={{
             background: 'none', border: 'none', cursor: 'pointer', padding: 0,
             fontSize: 'var(--sz-base)', color: '#185FA5',

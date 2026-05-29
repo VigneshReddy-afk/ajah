@@ -20,6 +20,7 @@ import (
 
 	"github.com/ajah/core/internal/attribution"
 	"github.com/ajah/core/internal/config"
+	"github.com/ajah/core/internal/crossmodel"
 	"github.com/ajah/core/internal/events"
 	"github.com/ajah/core/internal/flagging"
 	"github.com/ajah/core/internal/proxy"
@@ -966,6 +967,259 @@ func TestRAGVerification(t *testing.T) {
 	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
 
 	// ── Assert: warnings:daily counter incremented ────────────────────────────
+	count, err := rdb.Get(ctx, warnCountKey).Int64()
+	if err != nil {
+		t.Fatalf("read %q: %v", warnCountKey, err)
+	}
+	if count < 1 {
+		t.Errorf("warnings:daily:%s = %d, want >= 1", today, count)
+	}
+	t.Logf("warnings:daily:%s = %d", today, count)
+}
+
+// ── TestCrossModelVerification ────────────────────────────────────────────────
+// Sends a request through the full pipeline with:
+//   - A primary mock LLM returning "Paris is the capital of France."
+//   - A secondary mock LLM returning "Lyon is the capital of France."
+//   - A mock scorer /compare endpoint returning agreement_score=0.25
+//
+// The processFn simulates main.go step 3c: cross-model verification for the
+// "fact-check" feature. Verifies:
+//   - TraceRecord has cross_model_verdict="disagree" and cross_model_agreement<0.5
+//   - ShouldWarn=true and risk_level="medium" in ClickHouse
+//   - Warning entry appears in Redis warnings:high:list
+//   - Daily warning counter incremented
+
+func TestCrossModelVerification(t *testing.T) {
+	const reqID = "crossmodel-verify-req-001"
+
+	// Mock scorer: /compare returns low agreement; /score returns normal quality.
+	scorer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/compare") {
+			json.NewEncoder(w).Encode(map[string]any{
+				"agreement_score": 0.25,
+				"disagreements":   []string{"Primary says Paris, secondary says Lyon"},
+			})
+			return
+		}
+		_, _ = w.Write([]byte(`{"overall_quality_score":0.80}`))
+	}))
+	t.Cleanup(scorer.Close)
+
+	// Mock secondary LLM: returns a conflicting answer.
+	secondary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": "Lyon is the capital of France."}},
+			},
+		})
+	}))
+	t.Cleanup(secondary.Close)
+
+	// Mock primary LLM: returns the "correct" answer.
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": "Paris is the capital of France."}},
+			},
+			"usage": map[string]any{
+				"prompt_tokens": 10, "completion_tokens": 8,
+			},
+		})
+	}))
+	t.Cleanup(primary.Close)
+
+	rdb := redisClient(t)
+	ctx := context.Background()
+
+	today := time.Now().UTC().Format("2006-01-02")
+	warnCountKey := fmt.Sprintf("warnings:daily:%s", today)
+	initialLen, _ := rdb.LLen(ctx, "warnings:high:list").Result()
+
+	t.Cleanup(func() {
+		_ = rdb.Del(context.Background(), "flag:"+reqID).Err()
+		rdb.LTrim(context.Background(), "warnings:high:list", 0, initialLen-1)
+	})
+
+	logger := zap.NewNop()
+	verifier := crossmodel.New(scorer.URL, logger)
+	const dailyKeyTTL = 90 * 24 * time.Hour
+
+	processFn := func(ctx context.Context, event events.RequestEvent) error {
+		if event.StatusCode != http.StatusOK {
+			return nil
+		}
+
+		var crossModelVerdict string
+		var crossModelAgreement float64
+		riskLevel := "low"
+		shouldWarn := false
+		var reasons []string
+
+		// Feature "fact-check" has cross-model enabled pointing to the secondary mock.
+		if event.FeatureName == "fact-check" {
+			verifyCtx, verifyCancel := context.WithTimeout(ctx, 30*time.Second)
+			result, verifyErr := verifier.Verify(
+				verifyCtx,
+				event.Prompt, event.Response, event.Model,
+				secondary.URL, "sk-test", "test-model",
+			)
+			verifyCancel()
+			if verifyErr != nil {
+				t.Logf("cross-model verify error: %v", verifyErr)
+			} else if result != nil {
+				crossModelVerdict = result.Verdict
+				crossModelAgreement = result.AgreementScore
+				if result.Verdict != "agree" {
+					reasons = append(reasons,
+						fmt.Sprintf("Cross-model disagreement detected (agreement: %.2f)", result.AgreementScore))
+					riskLevel = "medium"
+					shouldWarn = true
+				}
+			}
+		}
+
+		if shouldWarn {
+			day := event.Timestamp.UTC().Format("2006-01-02")
+			key := fmt.Sprintf("warnings:daily:%s", day)
+			if err := rdb.Incr(ctx, key).Err(); err == nil {
+				rdb.Expire(ctx, key, dailyKeyTTL)
+			}
+			item, _ := json.Marshal(map[string]any{
+				"request_id":   event.RequestID,
+				"feature_name": event.FeatureName,
+				"risk_level":   riskLevel,
+				"reasons":      reasons,
+				"timestamp":    event.Timestamp,
+			})
+			rdb.LPush(ctx, "warnings:high:list", string(item))
+			rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+		}
+
+		record := storage.TraceRecord{
+			TraceID:             event.RequestID,
+			RequestID:           event.RequestID,
+			UserID:              event.UserID,
+			SessionID:           event.SessionID,
+			FeatureName:         event.FeatureName,
+			Provider:            event.Provider,
+			Model:               event.Model,
+			InputTokens:         event.InputTokens,
+			OutputTokens:        event.OutputTokens,
+			LatencyMs:           event.LatencyMs,
+			StatusCode:          event.StatusCode,
+			Timestamp:           event.Timestamp,
+			RiskLevel:           riskLevel,
+			ShouldWarn:          shouldWarn,
+			CrossModelVerdict:   crossModelVerdict,
+			CrossModelAgreement: crossModelAgreement,
+		}
+		return chWriter.Write(ctx, record)
+	}
+
+	cfg := &config.Config{
+		Port:                   "0",
+		RedisURL:               os.Getenv("REDIS_URL"),
+		LogLevel:               "info",
+		MaxRequestBodyBytes:    10 * 1024 * 1024,
+		AsyncWorkerCount:       2,
+		ProviderTimeoutSeconds: 10,
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
+
+	emitter := events.New(cfg.AsyncWorkerCount*10, cfg.AsyncWorkerCount, logger, processFn)
+	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancelEmitter(); emitter.Stop() })
+	emitter.Start(emitterCtx)
+
+	h := proxy.New(cfg, emitter, logger)
+	h.SetProviderURL("openai", primary.URL)
+	gatewaySrv := httptest.NewServer(h)
+	t.Cleanup(gatewaySrv.Close)
+
+	// Send request with X-Feature-Name: fact-check and known X-Request-ID.
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"What is the capital of France?"}]}`
+	req, err := http.NewRequest(http.MethodPost,
+		gatewaySrv.URL+"/v1/chat/completions",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "sk-test123")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", reqID)
+	req.Header.Set("X-User-ID", "crossmodel-user")
+	req.Header.Set("X-Feature-Name", "fact-check")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("gateway status = %d, want 200", resp.StatusCode)
+	}
+
+	// Wait for async pipeline (includes secondary LLM + scorer HTTP roundtrips).
+	time.Sleep(2 * time.Second)
+
+	// ── Assert 1: ClickHouse has cross_model_verdict="disagree" ──────────────
+	traces, err := chWriter.QueryRecent(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryRecent: %v", err)
+	}
+	var trace *storage.TraceRecord
+	for i := range traces {
+		if traces[i].RequestID == reqID {
+			trace = &traces[i]
+			break
+		}
+	}
+	if trace == nil {
+		t.Fatalf("trace with request_id %q not found in ClickHouse (%d records)", reqID, len(traces))
+	}
+	if trace.CrossModelVerdict != "disagree" {
+		t.Errorf("CrossModelVerdict = %q, want disagree", trace.CrossModelVerdict)
+	}
+	if trace.CrossModelAgreement >= 0.5 {
+		t.Errorf("CrossModelAgreement = %.4f, want < 0.5", trace.CrossModelAgreement)
+	}
+	if trace.RiskLevel != "medium" {
+		t.Errorf("RiskLevel = %q, want medium", trace.RiskLevel)
+	}
+	if !trace.ShouldWarn {
+		t.Error("ShouldWarn = false, want true")
+	}
+	t.Logf("ClickHouse trace: cross_model_verdict=%s agreement=%.2f risk_level=%s should_warn=%v",
+		trace.CrossModelVerdict, trace.CrossModelAgreement, trace.RiskLevel, trace.ShouldWarn)
+
+	// ── Assert 2: warning entry in Redis ─────────────────────────────────────
+	items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+	if err != nil {
+		t.Fatalf("read warnings:high:list: %v", err)
+	}
+	if int64(len(items)) <= initialLen {
+		t.Errorf("warnings:high:list length = %d, want > %d (no new entry added)", len(items), initialLen)
+	}
+	found := false
+	for _, item := range items {
+		if strings.Contains(item, reqID) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("request_id %q not found in warnings:high:list", reqID)
+	}
+	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
+
+	// ── Assert 3: daily warning counter incremented ───────────────────────────
 	count, err := rdb.Get(ctx, warnCountKey).Int64()
 	if err != nil {
 		t.Fatalf("read %q: %v", warnCountKey, err)
