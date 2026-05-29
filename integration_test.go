@@ -3,9 +3,12 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -587,7 +590,7 @@ func TestHallucinationFlagging(t *testing.T) {
 		}
 
 		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
-		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, 0.0)
+		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, 0.0, "")
 		flagCancel()
 
 		// Mirror exactly what the real processFn does.
@@ -716,6 +719,253 @@ func TestHallucinationFlagging(t *testing.T) {
 	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
 
 	// ── Assert 3: warnings:daily counter incremented ──────────────────────────
+	count, err := rdb.Get(ctx, warnCountKey).Int64()
+	if err != nil {
+		t.Fatalf("read %q: %v", warnCountKey, err)
+	}
+	if count < 1 {
+		t.Errorf("warnings:daily:%s = %d, want >= 1", today, count)
+	}
+	t.Logf("warnings:daily:%s = %d", today, count)
+}
+
+// ── TestRAGVerification ───────────────────────────────────────────────────────
+// Sends a request through the full pipeline with a mock scorer configured to
+// return a "contradicted" RAG verdict. Verifies:
+//   - The scorer received source_context in the scoring payload
+//   - The trace in ClickHouse has rag_verdict="contradicted" and rag_contradiction_score=0.75
+//   - RiskLevel is "high" due to the contradiction override in the flagger
+//   - The warning appears in Redis warnings:high:list
+
+func TestRAGVerification(t *testing.T) {
+	const reqID = "rag-verification-req-001"
+
+	// Track whether any scorer call carried a non-empty source_context.
+	var gotSourceContextMu sync.Mutex
+	var gotSourceContext bool
+
+	scorer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var pl struct {
+			SourceContext string `json:"source_context"`
+		}
+		_ = json.Unmarshal(body, &pl)
+		if pl.SourceContext != "" {
+			gotSourceContextMu.Lock()
+			gotSourceContext = true
+			gotSourceContextMu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"hallucination_score":0.15,"factual_consistency_score":0.85,"toxicity_score":0.001,"overall_quality_score":0.88,"flags":[],"processing_ms":450,"rag_verdict":"contradicted","rag_grounding_score":0.25,"rag_contradiction_score":0.75,"rag_supported_claims":[],"rag_unsupported_claims":["Claim A"],"rag_contradicted_claims":["Claim B contradicts document"]}`))
+	}))
+	t.Cleanup(scorer.Close)
+
+	rdb := redisClient(t)
+	ctx := context.Background()
+
+	today := time.Now().UTC().Format("2006-01-02")
+	warnCountKey := fmt.Sprintf("warnings:daily:%s", today)
+	initialLen, _ := rdb.LLen(ctx, "warnings:high:list").Result()
+
+	t.Cleanup(func() {
+		_ = rdb.Del(context.Background(), "flag:"+reqID).Err()
+		rdb.LTrim(context.Background(), "warnings:high:list", 0, initialLen-1)
+	})
+
+	mock := mockProvider()
+	t.Cleanup(mock.Close)
+
+	cfg := &config.Config{
+		Port:                   "0",
+		RedisURL:               os.Getenv("REDIS_URL"),
+		LogLevel:               "info",
+		MaxRequestBodyBytes:    10 * 1024 * 1024,
+		AsyncWorkerCount:       2,
+		ProviderTimeoutSeconds: 10,
+	}
+	if cfg.RedisURL == "" {
+		cfg.RedisURL = "redis://localhost:6379"
+	}
+
+	logger := zap.NewNop()
+	flgr := flagging.New(scorer.URL, logger)
+	scorerClient := &http.Client{Timeout: 10 * time.Second}
+	const dailyKeyTTL = 90 * 24 * time.Hour
+
+	// Local mirror of main.go scorerOutcome — only the fields we need.
+	type ragOutcome struct {
+		OverallQualityScore   float64 `json:"overall_quality_score"`
+		RAGVerdict            string  `json:"rag_verdict"`
+		RAGGroundingScore     float64 `json:"rag_grounding_score"`
+		RAGContradictionScore float64 `json:"rag_contradiction_score"`
+	}
+
+	processFn := func(ctx context.Context, event events.RequestEvent) error {
+		if event.StatusCode != http.StatusOK {
+			return nil
+		}
+
+		// Call scorer explicitly to obtain full RAG outcome (mirrors main.go callScorer).
+		var outcome ragOutcome
+		if payloadBytes, err := json.Marshal(map[string]string{
+			"request_id":     event.RequestID,
+			"prompt":         event.Prompt,
+			"response":       event.Response,
+			"model":          event.Model,
+			"feature_name":   event.FeatureName,
+			"source_context": event.SourceContext,
+		}); err == nil {
+			if req, err := http.NewRequestWithContext(ctx, http.MethodPost, scorer.URL+"/score", bytes.NewReader(payloadBytes)); err == nil {
+				req.Header.Set("Content-Type", "application/json")
+				if resp, err := scorerClient.Do(req); err == nil {
+					raw, _ := io.ReadAll(resp.Body)
+					_ = resp.Body.Close()
+					_ = json.Unmarshal(raw, &outcome)
+				}
+			}
+		}
+
+		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
+		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID,
+			event.Prompt, event.Response, outcome.OverallQualityScore, outcome.RAGVerdict)
+		flagCancel()
+
+		if riskFlag.ShouldWarn {
+			day := event.Timestamp.UTC().Format("2006-01-02")
+			key := fmt.Sprintf("warnings:daily:%s", day)
+			if err := rdb.Incr(ctx, key).Err(); err == nil {
+				rdb.Expire(ctx, key, dailyKeyTTL)
+			}
+		}
+		if riskFlag.RiskLevel == "high" {
+			item, _ := json.Marshal(riskFlag)
+			rdb.LPush(ctx, "warnings:high:list", string(item))
+			rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+		}
+
+		record := storage.TraceRecord{
+			TraceID:               event.RequestID,
+			RequestID:             event.RequestID,
+			UserID:                event.UserID,
+			SessionID:             event.SessionID,
+			FeatureName:           event.FeatureName,
+			Provider:              event.Provider,
+			Model:                 event.Model,
+			InputTokens:           event.InputTokens,
+			OutputTokens:          event.OutputTokens,
+			LatencyMs:             event.LatencyMs,
+			StatusCode:            event.StatusCode,
+			Timestamp:             event.Timestamp,
+			HallucinationRisk:     riskFlag.HallucinationRisk,
+			GroundingScore:        riskFlag.GroundingScore,
+			RiskLevel:             riskFlag.RiskLevel,
+			ShouldWarn:            riskFlag.ShouldWarn,
+			RAGVerdict:            outcome.RAGVerdict,
+			RAGGroundingScore:     outcome.RAGGroundingScore,
+			RAGContradictionScore: outcome.RAGContradictionScore,
+		}
+		return chWriter.Write(ctx, record)
+	}
+
+	emitter := events.New(cfg.AsyncWorkerCount*10, cfg.AsyncWorkerCount, logger, processFn)
+	emitterCtx, cancelEmitter := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancelEmitter(); emitter.Stop() })
+	emitter.Start(emitterCtx)
+
+	h := proxy.New(cfg, emitter, logger)
+	h.SetProviderURL("openai", mock.URL)
+	gatewaySrv := httptest.NewServer(h)
+	t.Cleanup(gatewaySrv.Close)
+
+	// 2. Send a request with X-Source-Context: base64("The sky is blue and clouds are white").
+	sourceCtxValue := base64.StdEncoding.EncodeToString([]byte("The sky is blue and clouds are white"))
+	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"What color is the sky?"}]}`
+	req, err := http.NewRequest(http.MethodPost,
+		gatewaySrv.URL+"/v1/chat/completions",
+		strings.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "sk-test123")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-ID", reqID)
+	req.Header.Set("X-User-ID", "rag-user")
+	req.Header.Set("X-Feature-Name", "rag-feature")
+	req.Header.Set("X-Source-Context", sourceCtxValue)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("gateway status = %d, want 200", resp.StatusCode)
+	}
+
+	// 3. Wait for async pipeline to complete.
+	time.Sleep(1 * time.Second)
+
+	// ── Assert: scorer received source_context in at least one call ───────────
+	gotSourceContextMu.Lock()
+	receivedCtx := gotSourceContext
+	gotSourceContextMu.Unlock()
+	if !receivedCtx {
+		t.Error("scorer never received a non-empty source_context in the payload")
+	}
+
+	// ── Assert: ClickHouse trace has rag_verdict="contradicted" ───────────────
+	traces, err := chWriter.QueryRecent(ctx, 100)
+	if err != nil {
+		t.Fatalf("QueryRecent: %v", err)
+	}
+	var trace *storage.TraceRecord
+	for i := range traces {
+		if traces[i].RequestID == reqID {
+			trace = &traces[i]
+			break
+		}
+	}
+	if trace == nil {
+		t.Fatalf("trace with request_id %q not found in ClickHouse (%d records)", reqID, len(traces))
+	}
+	if trace.RAGVerdict != "contradicted" {
+		t.Errorf("RAGVerdict = %q, want contradicted", trace.RAGVerdict)
+	}
+	if trace.RAGContradictionScore != 0.75 {
+		t.Errorf("RAGContradictionScore = %.4f, want 0.75", trace.RAGContradictionScore)
+	}
+	// hallucination=0.15, grounding=0.85 → normally "low"; contradiction override → "high"
+	if trace.RiskLevel != "high" {
+		t.Errorf("RiskLevel = %q, want high (contradiction override)", trace.RiskLevel)
+	}
+	if !trace.ShouldWarn {
+		t.Error("ShouldWarn = false, want true")
+	}
+	t.Logf("ClickHouse trace: rag_verdict=%s rag_contradiction=%.2f risk_level=%s should_warn=%v",
+		trace.RAGVerdict, trace.RAGContradictionScore, trace.RiskLevel, trace.ShouldWarn)
+
+	// ── Assert: warning appears in Redis warnings:high:list ───────────────────
+	items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+	if err != nil {
+		t.Fatalf("read warnings:high:list: %v", err)
+	}
+	if int64(len(items)) <= initialLen {
+		t.Errorf("warnings:high:list length = %d, want > %d (no new entry added)", len(items), initialLen)
+	}
+	found := false
+	for _, item := range items {
+		if strings.Contains(item, reqID) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("request_id %q not found in warnings:high:list", reqID)
+	}
+	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
+
+	// ── Assert: warnings:daily counter incremented ────────────────────────────
 	count, err := rdb.Get(ctx, warnCountKey).Int64()
 	if err != nil {
 		t.Fatalf("read %q: %v", warnCountKey, err)
