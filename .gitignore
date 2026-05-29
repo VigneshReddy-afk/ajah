@@ -25,3 +25,11 @@ Thumbs.db
 # Temp
 /tmp
 /tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# TypeScript
+*.tsbuildinfo
