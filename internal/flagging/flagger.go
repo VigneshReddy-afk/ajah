@@ -57,7 +57,11 @@ type scorerResult struct {
 // Evaluate scores a completed LLM response and returns a RiskFlag. It never
 // returns an error: if the scorer is unreachable the returned flag has
 // RiskLevel "unknown" so the async pipeline can always continue.
-func (f *Flagger) Evaluate(ctx context.Context, requestID, sessionID, prompt, response string, qualityScore float64) RiskFlag {
+// ragVerdict is the RAG grounding verdict from the quality scorer
+// ("supported", "partially_supported", "unsupported", "contradicted",
+// "unavailable", "not_applicable", or ""). An empty string means no RAG
+// context was provided and no override is applied.
+func (f *Flagger) Evaluate(ctx context.Context, requestID, sessionID, prompt, response string, qualityScore float64, ragVerdict string) RiskFlag {
 	base := RiskFlag{
 		RequestID: requestID,
 		SessionID: sessionID,
@@ -68,7 +72,7 @@ func (f *Flagger) Evaluate(ctx context.Context, requestID, sessionID, prompt, re
 		base.RiskLevel = "unknown"
 		base.ShouldWarn = false
 		base.Reasons = []string{"scoring unavailable"}
-		return base
+		return f.applyRAGVerdict(base, ragVerdict)
 	}
 
 	base.HallucinationRisk = result.HallucinationScore
@@ -78,7 +82,23 @@ func (f *Flagger) Evaluate(ctx context.Context, requestID, sessionID, prompt, re
 	base.RiskLevel = riskLevel
 	base.ShouldWarn = riskLevel == "high" || riskLevel == "medium"
 	base.Reasons = f.buildReasons(result.HallucinationScore, result.FactualConsistencyScore, riskLevel)
-	return base
+	return f.applyRAGVerdict(base, ragVerdict)
+}
+
+func (f *Flagger) applyRAGVerdict(flag RiskFlag, ragVerdict string) RiskFlag {
+	switch ragVerdict {
+	case "contradicted":
+		flag.RiskLevel = "high"
+		flag.ShouldWarn = true
+		flag.Reasons = append(flag.Reasons, "Response contradicts the provided source document")
+	case "unsupported":
+		if flag.RiskLevel != "high" {
+			flag.RiskLevel = "medium"
+			flag.ShouldWarn = true
+		}
+		flag.Reasons = append(flag.Reasons, "Response contains claims not found in source document")
+	}
+	return flag
 }
 
 func (f *Flagger) computeRiskLevel(hallucination, grounding float64) string {

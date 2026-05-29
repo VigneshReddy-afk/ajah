@@ -83,12 +83,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID       := r.Header.Get("X-User-ID")
-	sessionID    := r.Header.Get("X-Session-ID")
-	featureName  := r.Header.Get("X-Feature-Name")
-	stepName     := r.Header.Get("X-Agent-Step")
-	parentStepID := r.Header.Get("X-Parent-Step-ID")
-	toolName     := r.Header.Get("X-Tool-Name")
+	userID        := r.Header.Get("X-User-ID")
+	sessionID     := r.Header.Get("X-Session-ID")
+	featureName   := r.Header.Get("X-Feature-Name")
+	stepName      := r.Header.Get("X-Agent-Step")
+	parentStepID  := r.Header.Get("X-Parent-Step-ID")
+	toolName      := r.Header.Get("X-Tool-Name")
+	sourceContext := r.Header.Get("X-Source-Context")
 
 	provider, providerURL, err := h.detectProvider(r.Header.Get("Authorization"))
 	if err != nil {
@@ -135,6 +136,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	copyHeaders(upstreamReq.Header, r.Header)
+	// Strip Ajah-only headers — these must never reach the LLM provider.
+	upstreamReq.Header.Del("X-Source-Context")
 	authKey := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	upstreamReq.Header.Set("Authorization", "Bearer "+authKey)
 
@@ -176,23 +179,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	event := events.RequestEvent{
-		RequestID:    requestID,
-		UserID:       userID,
-		SessionID:    sessionID,
-		FeatureName:  featureName,
-		AgentStep:    stepName, // kept for attribution retry-loop key
-		StepName:     stepName,
-		ParentStepID: parentStepID,
-		ToolName:     toolName,
-		Provider:     provider,
-		Model:        model,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		LatencyMs:    latencyMs,
-		StatusCode:   resp.StatusCode,
-		Prompt:       extractPrompt(body),
-		Response:     extractResponse(respBody),
-		Timestamp:    start,
+		RequestID:     requestID,
+		UserID:        userID,
+		SessionID:     sessionID,
+		FeatureName:   featureName,
+		AgentStep:     stepName, // kept for attribution retry-loop key
+		StepName:      stepName,
+		ParentStepID:  parentStepID,
+		ToolName:      toolName,
+		Provider:      provider,
+		Model:         model,
+		InputTokens:   inputTokens,
+		OutputTokens:  outputTokens,
+		LatencyMs:     latencyMs,
+		StatusCode:    resp.StatusCode,
+		Prompt:        extractPrompt(body),
+		Response:      extractResponse(respBody),
+		SourceContext: sourceContext,
+		Timestamp:     start,
 	}
 
 	// Fire-and-forget: never block the caller on event processing.

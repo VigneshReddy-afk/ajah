@@ -33,10 +33,13 @@ type TraceRecord struct {
 	WasPIIMasked      bool
 	QualityScore      float64
 	Timestamp         time.Time
-	HallucinationRisk float64
-	GroundingScore    float64
-	RiskLevel         string
-	ShouldWarn        bool
+	HallucinationRisk     float64
+	GroundingScore        float64
+	RiskLevel             string
+	ShouldWarn            bool
+	RAGVerdict            string
+	RAGGroundingScore     float64
+	RAGContradictionScore float64
 }
 
 // Writer holds a ClickHouse connection and exposes write operations.
@@ -67,10 +70,13 @@ CREATE TABLE IF NOT EXISTS traces (
     parent_step_id      String,
     step_name           String,
     tool_name           String,
-    hallucination_risk  Float64,
-    grounding_score     Float64,
-    risk_level          String,
-    should_warn         UInt8
+    hallucination_risk      Float64,
+    grounding_score         Float64,
+    risk_level              String,
+    should_warn             UInt8,
+    rag_verdict             String,
+    rag_grounding_score     Float64,
+    rag_contradiction_score Float64
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, user_id, feature_name)
 `
@@ -79,13 +85,16 @@ ORDER BY (timestamp, user_id, feature_name)
 // All additions use IF NOT EXISTS so this is safe to re-run on any table version.
 const migrateTableSQL = `
 ALTER TABLE traces
-    ADD COLUMN IF NOT EXISTS parent_step_id     String  DEFAULT '',
-    ADD COLUMN IF NOT EXISTS step_name          String  DEFAULT '',
-    ADD COLUMN IF NOT EXISTS tool_name          String  DEFAULT '',
-    ADD COLUMN IF NOT EXISTS hallucination_risk Float64 DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS grounding_score    Float64 DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS risk_level         String  DEFAULT '',
-    ADD COLUMN IF NOT EXISTS should_warn        UInt8   DEFAULT 0
+    ADD COLUMN IF NOT EXISTS parent_step_id         String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS step_name              String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS tool_name              String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS hallucination_risk     Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS grounding_score        Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS risk_level             String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS should_warn            UInt8   DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS rag_verdict            String  DEFAULT '',
+    ADD COLUMN IF NOT EXISTS rag_grounding_score    Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS rag_contradiction_score Float64 DEFAULT 0
 `
 
 // New opens a ClickHouse connection using dsn and pings the server to verify
@@ -148,7 +157,8 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 		cost_usd, latency_ms, status_code, masked_prompt,
 		was_pii_masked, quality_score, timestamp,
 		parent_step_id, step_name, tool_name,
-		hallucination_risk, grounding_score, risk_level, should_warn
+		hallucination_risk, grounding_score, risk_level, should_warn,
+		rag_verdict, rag_grounding_score, rag_contradiction_score
 	)`)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -180,6 +190,9 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 			r.GroundingScore,
 			r.RiskLevel,
 			boolToUint8(r.ShouldWarn),
+			r.RAGVerdict,
+			r.RAGGroundingScore,
+			r.RAGContradictionScore,
 		); err != nil {
 			return fmt.Errorf("append record %q: %w", r.TraceID, err)
 		}
@@ -202,7 +215,8 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 		       cost_usd, latency_ms, status_code, masked_prompt,
 		       was_pii_masked, quality_score, timestamp,
 		       parent_step_id, step_name, tool_name,
-		       hallucination_risk, grounding_score, risk_level, should_warn
+		       hallucination_risk, grounding_score, risk_level, should_warn,
+		       rag_verdict, rag_grounding_score, rag_contradiction_score
 		FROM traces
 		ORDER BY timestamp DESC
 		LIMIT %d`, limit))
@@ -228,6 +242,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 			&wasPIIMasked, &r.QualityScore, &r.Timestamp,
 			&r.ParentStepID, &r.StepName, &r.ToolName,
 			&r.HallucinationRisk, &r.GroundingScore, &r.RiskLevel, &shouldWarn,
+			&r.RAGVerdict, &r.RAGGroundingScore, &r.RAGContradictionScore,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}

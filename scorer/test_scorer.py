@@ -1,3 +1,5 @@
+import base64
+
 import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
@@ -180,6 +182,38 @@ class TestEdgeCases:
         s = _make_scorer(_similar_embs())
         result = s.score(_BASE_REQUEST)
         assert result.processing_ms >= 0
+
+# ---------------------------------------------------------------------------
+# RAG integration
+# ---------------------------------------------------------------------------
+
+class TestRAGIntegration:
+    def test_score_with_rag_context(self):
+        source = (
+            "The capital of France is Paris. "
+            "Paris has been the capital since the 10th century."
+        )
+        encoded = base64.b64encode(source.encode()).decode()
+        s = _make_scorer(_similar_embs())
+        req = ScoreRequest(
+            request_id="req-rag",
+            prompt="What is the capital of France?",
+            response="The capital of France is Paris, located in northern France.",
+            model="gpt-4o",
+            feature_name="chat",
+            source_context=encoded,
+        )
+        result = s.score(req)
+        assert result.rag_verdict != "not_applicable"
+        assert 0.0 <= result.rag_grounding_score <= 1.0
+
+    def test_no_rag_when_source_context_absent(self):
+        s = _make_scorer(_similar_embs())
+        result = s.score(_BASE_REQUEST)
+        assert result.rag_verdict == "not_applicable"
+        assert result.rag_grounding_score == 0.0
+        assert result.rag_supported_claims == []
+
 
 # ---------------------------------------------------------------------------
 # Health endpoint

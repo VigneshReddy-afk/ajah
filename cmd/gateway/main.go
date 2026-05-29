@@ -145,9 +145,11 @@ func run() error {
 
 		// Step 3: quality scoring (best-effort; only for successful responses)
 		qualityScore := 0.0
+		var scorerOut scorerOutcome
 		if event.StatusCode == http.StatusOK {
 			scoreCtx, scoreCancel := context.WithTimeout(ctx, 10*time.Second)
-			qualityScore = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, logger)
+			scorerOut = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, logger)
+			qualityScore = scorerOut.OverallQualityScore
 			scoreCancel()
 		}
 
@@ -155,7 +157,7 @@ func run() error {
 		var riskFlag flagging.RiskFlag
 		if event.StatusCode == http.StatusOK {
 			flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
-			riskFlag = flagger.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, qualityScore)
+			riskFlag = flagger.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, qualityScore, scorerOut.RAGVerdict)
 			flagCancel()
 
 			if riskFlag.ShouldWarn {
@@ -203,30 +205,33 @@ func run() error {
 
 		// Step 4: write trace to ClickHouse
 		record := storage.TraceRecord{
-			TraceID:           event.RequestID,
-			RequestID:         event.RequestID,
-			UserID:            event.UserID,
-			SessionID:         event.SessionID,
-			FeatureName:       event.FeatureName,
-			AgentStep:         event.AgentStep,
-			ParentStepID:      event.ParentStepID,
-			StepName:          event.StepName,
-			ToolName:          event.ToolName,
-			Provider:          event.Provider,
-			Model:             event.Model,
-			InputTokens:       event.InputTokens,
-			OutputTokens:      event.OutputTokens,
-			CostUSD:           costRecord.CostUSD,
-			LatencyMs:         event.LatencyMs,
-			StatusCode:        event.StatusCode,
-			MaskedPrompt:      maskResult.Masked,
-			WasPIIMasked:      maskResult.WasMasked,
-			QualityScore:      qualityScore,
-			Timestamp:         event.Timestamp,
-			HallucinationRisk: riskFlag.HallucinationRisk,
-			GroundingScore:    riskFlag.GroundingScore,
-			RiskLevel:         riskFlag.RiskLevel,
-			ShouldWarn:        riskFlag.ShouldWarn,
+			TraceID:               event.RequestID,
+			RequestID:             event.RequestID,
+			UserID:                event.UserID,
+			SessionID:             event.SessionID,
+			FeatureName:           event.FeatureName,
+			AgentStep:             event.AgentStep,
+			ParentStepID:          event.ParentStepID,
+			StepName:              event.StepName,
+			ToolName:              event.ToolName,
+			Provider:              event.Provider,
+			Model:                 event.Model,
+			InputTokens:           event.InputTokens,
+			OutputTokens:          event.OutputTokens,
+			CostUSD:               costRecord.CostUSD,
+			LatencyMs:             event.LatencyMs,
+			StatusCode:            event.StatusCode,
+			MaskedPrompt:          maskResult.Masked,
+			WasPIIMasked:          maskResult.WasMasked,
+			QualityScore:          qualityScore,
+			Timestamp:             event.Timestamp,
+			HallucinationRisk:     riskFlag.HallucinationRisk,
+			GroundingScore:        riskFlag.GroundingScore,
+			RiskLevel:             riskFlag.RiskLevel,
+			ShouldWarn:            riskFlag.ShouldWarn,
+			RAGVerdict:            scorerOut.RAGVerdict,
+			RAGGroundingScore:     scorerOut.RAGGroundingScore,
+			RAGContradictionScore: scorerOut.RAGContradictionScore,
 		}
 		writeErr := writer.Write(ctx, record)
 		if writeErr != nil {
@@ -506,52 +511,60 @@ func scanCostKeys(
 }
 
 type scorerPayload struct {
-	RequestID   string `json:"request_id"`
-	Prompt      string `json:"prompt"`
-	Response    string `json:"response"`
-	Model       string `json:"model"`
-	FeatureName string `json:"feature_name"`
+	RequestID     string `json:"request_id"`
+	Prompt        string `json:"prompt"`
+	Response      string `json:"response"`
+	Model         string `json:"model"`
+	FeatureName   string `json:"feature_name"`
+	SourceContext string `json:"source_context,omitempty"`
 }
 
 type scorerOutcome struct {
-	OverallQualityScore float64 `json:"overall_quality_score"`
+	OverallQualityScore   float64  `json:"overall_quality_score"`
+	RAGVerdict            string   `json:"rag_verdict"`
+	RAGGroundingScore     float64  `json:"rag_grounding_score"`
+	RAGContradictionScore float64  `json:"rag_contradiction_score"`
+	RAGSupportedClaims    []string `json:"rag_supported_claims"`
+	RAGUnsupportedClaims  []string `json:"rag_unsupported_claims"`
+	RAGContradictedClaims []string `json:"rag_contradicted_claims"`
 }
 
-// callScorer posts to the quality scorer service and returns the overall quality score.
-// Any failure (network, decode, etc.) logs a warning and returns 0 so the main
-// pipeline is never blocked by scorer availability.
-func callScorer(ctx context.Context, client *http.Client, baseURL string, event events.RequestEvent, logger *zap.Logger) float64 {
+// callScorer posts to the quality scorer service and returns the full scorerOutcome.
+// Any failure (network, decode, etc.) logs a warning and returns a zero-value
+// outcome so the main pipeline is never blocked by scorer availability.
+func callScorer(ctx context.Context, client *http.Client, baseURL string, event events.RequestEvent, logger *zap.Logger) scorerOutcome {
 	scorerURL := baseURL + "/score"
 	logger.Debug("scorer: calling", zap.String("url", scorerURL), zap.String("request_id", event.RequestID))
 
 	body, err := json.Marshal(scorerPayload{
-		RequestID:   event.RequestID,
-		Prompt:      event.Prompt,
-		Response:    event.Response,
-		Model:       event.Model,
-		FeatureName: event.FeatureName,
+		RequestID:     event.RequestID,
+		Prompt:        event.Prompt,
+		Response:      event.Response,
+		Model:         event.Model,
+		FeatureName:   event.FeatureName,
+		SourceContext: event.SourceContext,
 	})
 	if err != nil {
 		logger.Warn("scorer: marshal failed", zap.Error(err))
-		return 0
+		return scorerOutcome{}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, scorerURL, bytes.NewReader(body))
 	if err != nil {
 		logger.Warn("scorer: build request failed", zap.Error(err))
-		return 0
+		return scorerOutcome{}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.Warn("scorer: unreachable", zap.String("url", scorerURL), zap.Error(err))
-		return 0
+		return scorerOutcome{}
 	}
 	defer resp.Body.Close()
 
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.Warn("scorer: read response failed", zap.Error(err))
-		return 0
+		return scorerOutcome{}
 	}
 	if resp.StatusCode != http.StatusOK {
 		logger.Warn("scorer: non-200 status",
@@ -559,7 +572,7 @@ func callScorer(ctx context.Context, client *http.Client, baseURL string, event 
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("body", string(rawBody)),
 		)
-		return 0
+		return scorerOutcome{}
 	}
 	logger.Debug("scorer: raw response",
 		zap.String("request_id", event.RequestID),
@@ -570,13 +583,14 @@ func callScorer(ctx context.Context, client *http.Client, baseURL string, event 
 	var outcome scorerOutcome
 	if err := json.Unmarshal(rawBody, &outcome); err != nil {
 		logger.Warn("scorer: decode response failed", zap.String("body", string(rawBody)), zap.Error(err))
-		return 0
+		return scorerOutcome{}
 	}
 	logger.Info("scorer: quality score extracted",
 		zap.String("request_id", event.RequestID),
 		zap.Float64("quality_score", outcome.OverallQualityScore),
+		zap.String("rag_verdict", outcome.RAGVerdict),
 	)
-	return outcome.OverallQualityScore
+	return outcome
 }
 
 func extractSegment(key, prefix, suffix string) string {

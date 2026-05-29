@@ -36,7 +36,7 @@ func TestEvaluate_HighRiskOnLowGrounding(t *testing.T) {
 	defer srv.Close()
 
 	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-1", "sess-1", "prompt", "response", 0.5)
+	flag := f.Evaluate(context.Background(), "req-1", "sess-1", "prompt", "response", 0.5, "")
 
 	if flag.RiskLevel != "high" {
 		t.Errorf("expected RiskLevel=high, got %q", flag.RiskLevel)
@@ -63,7 +63,7 @@ func TestEvaluate_HighRiskOnHighHallucination(t *testing.T) {
 	defer srv.Close()
 
 	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-2", "sess-2", "prompt", "response", 0.4)
+	flag := f.Evaluate(context.Background(), "req-2", "sess-2", "prompt", "response", 0.4, "")
 
 	if flag.RiskLevel != "high" {
 		t.Errorf("expected RiskLevel=high, got %q", flag.RiskLevel)
@@ -84,7 +84,7 @@ func TestEvaluate_MediumRisk(t *testing.T) {
 	defer srv.Close()
 
 	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-3", "sess-3", "prompt", "response", 0.5)
+	flag := f.Evaluate(context.Background(), "req-3", "sess-3", "prompt", "response", 0.5, "")
 
 	if flag.RiskLevel != "medium" {
 		t.Errorf("expected RiskLevel=medium, got %q", flag.RiskLevel)
@@ -105,7 +105,7 @@ func TestEvaluate_LowRisk(t *testing.T) {
 	defer srv.Close()
 
 	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-4", "sess-4", "prompt", "response", 0.9)
+	flag := f.Evaluate(context.Background(), "req-4", "sess-4", "prompt", "response", 0.9, "")
 
 	if flag.RiskLevel != "low" {
 		t.Errorf("expected RiskLevel=low, got %q", flag.RiskLevel)
@@ -124,7 +124,7 @@ func TestEvaluate_LowRisk(t *testing.T) {
 func TestEvaluate_ScorerUnavailableReturnsUnknown(t *testing.T) {
 	// Point at a dead address — no server running there.
 	f := newTestFlagger(t, "http://127.0.0.1:19999")
-	flag := f.Evaluate(context.Background(), "req-5", "sess-5", "prompt", "response", 0.0)
+	flag := f.Evaluate(context.Background(), "req-5", "sess-5", "prompt", "response", 0.0, "")
 
 	if flag.RiskLevel != "unknown" {
 		t.Errorf("expected RiskLevel=unknown, got %q", flag.RiskLevel)

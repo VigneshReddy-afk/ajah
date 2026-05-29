@@ -28,6 +28,16 @@ export interface TraceRecord {
   was_pii_masked: boolean
   quality_score: number
   timestamp: string
+  hallucination_risk?: number
+  grounding_score?: number
+  risk_level?: string
+  should_warn?: boolean
+  rag_verdict?: string
+  rag_grounding_score?: number
+  rag_contradiction_score?: number
+  rag_supported_claims?: string[]
+  rag_unsupported_claims?: string[]
+  rag_contradicted_claims?: string[]
 }
 
 export interface SessionRecord {
@@ -68,6 +78,7 @@ export interface WarningItem {
   grounding_score: number
   reasons: string[]
   timestamp: string
+  rag_verdict?: string
 }
 
 export interface WarningsResponse {

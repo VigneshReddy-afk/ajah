@@ -26,9 +26,10 @@ type RequestEvent struct {
 	OutputTokens int
 	LatencyMs    int64
 	StatusCode   int
-	Prompt       string
-	Response     string
-	Timestamp    time.Time
+	Prompt        string
+	Response      string
+	SourceContext string // raw base64-encoded source document; empty if not provided
+	Timestamp     time.Time
 }
 
 // ProcessFn is called by each worker goroutine for every dequeued event.

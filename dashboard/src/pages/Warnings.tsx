@@ -136,7 +136,16 @@ function ReasonsCell({ reasons }: { reasons: string[] }) {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+function isRAGIssue(w: WarningItem): boolean {
+  if (w.rag_verdict === 'contradicted' || w.rag_verdict === 'unsupported') return true
+  return w.reasons.some(r =>
+    r.includes('contradicts') || r.includes('not found in source')
+  )
+}
+
 export default function Warnings() {
+  const [ragOnly, setRagOnly] = useState(false)
+
   const { data, isLoading, error } = useQuery<WarningsResponse>({
     queryKey: ['warnings'],
     queryFn: () => fetchJSON('/warnings'),
@@ -154,11 +163,14 @@ export default function Warnings() {
   const totalTraces = metrics?.total_traces ?? 0
 
   // All items in warnings:high:list are high-risk; medium = warned - high
-  const highCount = warnings.length
-  const medCount  = Math.max(0, totalToday - highCount)
-  const flagRate  = totalTraces > 0
+  const highCount  = warnings.length
+  const medCount   = Math.max(0, totalToday - highCount)
+  const flagRate   = totalTraces > 0
     ? `${(totalToday / totalTraces * 100).toFixed(1)}%`
     : totalToday > 0 ? `${totalToday}` : '—'
+  const ragContradictCount = warnings.filter(isRAGIssue).length
+
+  const displayed = ragOnly ? warnings.filter(isRAGIssue) : warnings
 
   if (isLoading) {
     return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
@@ -171,10 +183,45 @@ export default function Warnings() {
     <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* ── Metric cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        <MetricCard label="High risk today"   value={String(highCount)} color={HIGH_COLOR} />
-        <MetricCard label="Medium risk today" value={String(medCount)}  color={MED_COLOR}  />
-        <MetricCard label="Flag rate"         value={flagRate}          color="var(--color-text-primary)" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        <MetricCard label="High risk today"          value={String(highCount)}       color={HIGH_COLOR} />
+        <MetricCard label="Medium risk today"        value={String(medCount)}        color={MED_COLOR}  />
+        <MetricCard label="Flag rate"                value={flagRate}                color="var(--color-text-primary)" />
+        <MetricCard label="RAG contradictions today" value={String(ragContradictCount)} color={HIGH_COLOR} />
+      </div>
+
+      {/* ── Filter bar ── */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button
+          onClick={() => setRagOnly(false)}
+          style={{
+            padding: '5px 14px',
+            borderRadius: 6,
+            border: '0.5px solid var(--color-border-tertiary)',
+            background: !ragOnly ? 'var(--color-background-secondary)' : 'transparent',
+            color: !ragOnly ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+            fontSize: 'var(--sz-xs)',
+            fontWeight: !ragOnly ? 600 : 400,
+            cursor: 'pointer',
+          }}
+        >
+          All warnings
+        </button>
+        <button
+          onClick={() => setRagOnly(true)}
+          style={{
+            padding: '5px 14px',
+            borderRadius: 6,
+            border: ragOnly ? `0.5px solid ${HIGH_COLOR}` : '0.5px solid var(--color-border-tertiary)',
+            background: ragOnly ? HIGH_BG : 'transparent',
+            color: ragOnly ? HIGH_COLOR : 'var(--color-text-tertiary)',
+            fontSize: 'var(--sz-xs)',
+            fontWeight: ragOnly ? 600 : 400,
+            cursor: 'pointer',
+          }}
+        >
+          RAG Issues Only
+        </button>
       </div>
 
       {/* ── Warnings table ── */}
@@ -184,9 +231,9 @@ export default function Warnings() {
         borderRadius: 10,
         overflow: 'hidden',
       }}>
-        {warnings.length === 0 ? (
+        {displayed.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>
-            No flagged responses yet
+            {ragOnly ? 'No RAG issues found' : 'No flagged responses yet'}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -203,7 +250,7 @@ export default function Warnings() {
                 </tr>
               </thead>
               <tbody>
-                {warnings.map((w, i) => (
+                {displayed.map((w, i) => (
                   <tr
                     key={w.request_id || i}
                     style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.012)' }}

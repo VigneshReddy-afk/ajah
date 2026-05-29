@@ -1,3 +1,4 @@
+import base64
 import logging
 import re
 import time
@@ -8,6 +9,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from transformers import pipeline
 
 from models import ScoreRequest, ScoreResult
+from rag_verifier import RAGVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,7 @@ class QualityScorer:
             model="unitary/toxic-bert",
             top_k=None,
         )
+        self.rag_verifier = RAGVerifier(self.embedder)
 
     def score(self, request: ScoreRequest) -> ScoreResult:
         start = time.time()
@@ -80,7 +83,7 @@ class QualityScorer:
                 request.request_id,
             )
 
-        return ScoreResult(
+        result = ScoreResult(
             request_id=request.request_id,
             hallucination_score=hallucination_score,
             factual_consistency_score=factual_consistency_score,
@@ -89,6 +92,29 @@ class QualityScorer:
             flags=flags,
             processing_ms=processing_ms,
         )
+
+        if request.source_context:
+            try:
+                decoded = base64.b64decode(request.source_context).decode("utf-8")
+                rag = self.rag_verifier.verify(
+                    source_context=decoded,
+                    response=request.response,
+                )
+                result.rag_verdict = rag.verdict
+                result.rag_grounding_score = rag.grounding_score
+                result.rag_contradiction_score = rag.contradiction_score
+                result.rag_supported_claims = rag.supported_claims
+                result.rag_unsupported_claims = rag.unsupported_claims
+                result.rag_contradicted_claims = rag.contradicted_claims
+                if rag.verdict == "contradicted":
+                    result.overall_quality_score *= 0.3
+                elif rag.verdict == "unsupported":
+                    result.overall_quality_score *= 0.6
+            except Exception as e:
+                logger.warning("RAG verification failed: %s", e)
+                result.rag_verdict = "unavailable"
+
+        return result
 
     def _hallucination(self, response: str, similarity: float, is_refusal: bool) -> float:
         if is_refusal:
