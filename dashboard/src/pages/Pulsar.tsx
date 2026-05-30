@@ -3,44 +3,6 @@ import '../lib/pulsar-engine'
 import type { PulsarEvent } from '../types/pulsar'
 import type { TraceRecord } from '../api/types'
 
-// ── Feature catalogue (mirrors engine internals) ─────────────────────────────
-const FEATURE_CONF: Record<string, { name: string; w: number; lat: number; cost: number }> = {
-  chat:      { name: 'chat',      w: 42, lat: 1150, cost: 0.00072 },
-  summarize: { name: 'summarize', w: 20, lat: 2050, cost: 0.00210 },
-  classify:  { name: 'classify',  w: 16, lat: 820,  cost: 0.00110 },
-  translate: { name: 'translate', w: 12, lat: 760,  cost: 0.00090 },
-  embed:     { name: 'embed',     w: 10, lat: 470,  cost: 0.00028 },
-}
-const KNOWN = Object.keys(FEATURE_CONF)
-
-function normalizeFeature(name: string): string {
-  if (!name) return 'chat'
-  const lower = name.toLowerCase()
-  for (const k of KNOWN) if (lower.includes(k)) return k
-  return 'chat'
-}
-
-let _evtId = 0
-
-function traceToEvent(t: TraceRecord): PulsarEvent {
-  const feature = normalizeFeature(t.feature_name)
-  const rag = t.rag_verdict ?? 'not_applicable'
-  const quality = t.quality_score ?? 0
-  return {
-    id: ++_evtId,
-    t: new Date(t.timestamp).getTime(),
-    feature,
-    fconf: FEATURE_CONF[feature],
-    model: t.model ?? 'unknown',
-    latency: t.latency_ms ?? 0,
-    cost: t.cost_usd ?? 0,
-    quality,
-    pii: t.was_pii_masked ?? false,
-    rag,
-    flare: rag === 'contradicted' || (quality > 0 && quality < 0.45),
-  }
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const pad2 = (n: number) => String(n).padStart(2, '0')
 function hms(ts: number) {
@@ -61,6 +23,32 @@ const card: CSSProperties = {
   borderRadius: 10,
 }
 
+// ── Trace → PulsarEvent mapping ───────────────────────────────────────────────
+let _autoId = 0
+
+function traceToEvent(t: TraceRecord): PulsarEvent {
+  const rag = t.rag_verdict || 'not_applicable'
+  const quality = t.quality_score || 0
+  return {
+    id: ++_autoId,
+    t: Date.now(),
+    feature: t.feature_name || 'unknown',
+    fconf: {
+      name: t.feature_name || 'unknown',
+      w: 20,
+      lat: t.latency_ms || 1000,
+      cost: t.cost_usd || 0,
+    },
+    model: t.model || 'unknown',
+    latency: t.latency_ms || 0,
+    cost: t.cost_usd || 0,
+    quality,
+    pii: t.was_pii_masked === true,
+    rag,
+    flare: rag === 'contradicted' || (quality > 0 && quality < 0.45),
+  }
+}
+
 // ── Sparkline ─────────────────────────────────────────────────────────────────
 function Spark({ data, color = ACCENT, h = 28 }: { data: number[]; color?: string; h?: number }) {
   if (!data || data.length < 2) return <div style={{ height: h }} />
@@ -76,11 +64,7 @@ function Spark({ data, color = ACCENT, h = 28 }: { data: number[]; color?: strin
   const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ')
   const area = line + ` L ${W} ${h} L 0 ${h} Z`
   return (
-    <svg
-      viewBox={`0 0 ${W} ${h}`}
-      preserveAspectRatio="none"
-      style={{ width: '100%', height: h, display: 'block' }}
-    >
+    <svg viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
       <path d={area} fill={color} opacity="0.12" />
       <path d={line} fill="none" stroke={color} strokeWidth="1.4" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
     </svg>
@@ -190,30 +174,32 @@ const EMPTY_STATS: Stats = {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Pulsar() {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const engineRef = useRef<InstanceType<typeof window.PulsarField> | null>(null)
-  const bufRef = useRef<PulsarEvent[]>([])
-  const seenIds = useRef<Set<string>>(new Set())
+  const canvasRef    = useRef<HTMLCanvasElement>(null)
+  const engineRef    = useRef<InstanceType<typeof window.PulsarField> | null>(null)
+  const bufRef       = useRef<PulsarEvent[]>([])
+  const seenIds      = useRef<Set<string>>(new Set())
+  const lastRealTime = useRef(0)
 
-  const [paused, setPaused] = useState(false)
-  const [ticker, setTicker] = useState<PulsarEvent[]>([])
-  const [stats, setStats] = useState<Stats>(EMPTY_STATS)
+  const [paused,     setPaused]    = useState(false)
+  const [ticker,     setTicker]    = useState<PulsarEvent[]>([])
+  const [stats,      setStats]     = useState<Stats>(EMPTY_STATS)
+  const [isLiveData, setIsLiveData] = useState(false)
 
   const dateStr = useMemo(() =>
     new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
   [])
 
-  // Mount engine once
   useEffect(() => {
     if (!canvasRef.current) return
+
+    // Engine starts with rate:0 — simulation never fires
     const eng = new window.PulsarField(canvasRef.current)
     engineRef.current = eng
-    eng.setConfig({ liveliness: 7, rate: 64, accent: ACCENT, sectors: true, paused: false })
+    eng.setConfig({ liveliness: 7, rate: 0, accent: ACCENT, sectors: true, paused: false })
     eng.on((evt: PulsarEvent) => {
       bufRef.current.push(evt)
       setTicker((prev) => [evt, ...prev].slice(0, 16))
     })
-    eng.burst(7)
     eng.start()
 
     // Stats rolling update — 60s window, 30 buckets
@@ -247,7 +233,12 @@ export default function Pulsar() {
       })
     }, 650)
 
-    // Real data polling — every 3 seconds
+    // Live-data indicator — check every 5s
+    const liveTimer = setInterval(() => {
+      setIsLiveData(Date.now() - lastRealTime.current < 30_000)
+    }, 5_000)
+
+    // Real data polling — every 2 seconds
     const poll = async () => {
       try {
         const res = await fetch('http://localhost:8080/metrics/traces')
@@ -257,28 +248,36 @@ export default function Pulsar() {
           if (seenIds.current.has(t.request_id)) continue
           seenIds.current.add(t.request_id)
           const evt = traceToEvent(t)
+          lastRealTime.current = Date.now()
           eng.emit(evt)
         }
       } catch {
-        // gateway not reachable — engine runs in demo mode
+        // gateway unreachable — field stays empty
       }
     }
     poll()
-    const pollTimer = setInterval(poll, 3_000)
+    const pollTimer = setInterval(poll, 2_000)
 
     return () => {
       eng.stop()
       clearInterval(statsTimer)
+      clearInterval(liveTimer)
       clearInterval(pollTimer)
     }
   }, [])
 
-  // Sync pause state to engine
   useEffect(() => {
     engineRef.current?.setConfig({ paused })
   }, [paused])
 
-  const rate = 64
+  // Badge appearance
+  const badge = paused
+    ? { label: 'Paused',           dot: false, color: 'var(--color-text-tertiary)', bg: 'var(--color-background-primary)', pulse: false }
+    : isLiveData
+    ? { label: 'Live data',        dot: true,  color: ACCENT,                       bg: 'rgba(24,95,165,0.13)',             pulse: true  }
+    : { label: 'Waiting for data', dot: true,  color: 'var(--color-text-tertiary)', bg: 'var(--color-background-primary)', pulse: false }
+
+  const hasData = ticker.length > 0
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '14px 20px 16px', gap: 12 }}>
@@ -289,22 +288,21 @@ export default function Pulsar() {
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             fontSize: 11, fontWeight: 500,
-            color: paused ? 'var(--color-text-tertiary)' : ACCENT,
-            background: paused ? 'var(--color-background-primary)' : 'rgba(24,95,165,0.13)',
+            color: badge.color,
+            background: badge.bg,
             padding: '3px 9px 3px 8px', borderRadius: 5,
           }}>
-            <span style={{
-              width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-              background: paused ? 'var(--color-text-tertiary)' : ACCENT,
-              ...(paused ? {} : { animation: 'pulsarDot 1.4s ease-in-out infinite' }),
-            }} />
-            {paused ? 'Paused' : 'Live stream'}
+            {badge.dot && (
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: badge.color,
+                ...(badge.pulse ? { animation: 'pulsarDot 1.4s ease-in-out infinite' } : {}),
+              }} />
+            )}
+            {badge.label}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>
-            ~{rate} calls/min
-          </span>
           <button
             onClick={() => setPaused((p) => !p)}
             style={{
@@ -346,6 +344,19 @@ export default function Pulsar() {
           background: 'radial-gradient(120% 120% at 50% 46%, #181D29 0%, var(--color-background-secondary) 62%)',
         }}>
           <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0 }} />
+
+          {/* Empty state overlay — hidden once real data arrives */}
+          {!hasData && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              pointerEvents: 'none',
+            }}>
+              <div style={{ fontSize: 13, color: 'var(--color-text-tertiary)' }}>Waiting for LLM calls</div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 6 }}>Send a request through the gateway</div>
+            </div>
+          )}
+
           <div style={{ position: 'absolute', top: 14, left: 16, pointerEvents: 'none' }}>
             <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.09em', fontWeight: 600 }}>Live pulse field</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 3, opacity: 0.8 }}>every ring is one model call</div>
@@ -373,7 +384,6 @@ export default function Pulsar() {
         </div>
       </div>
 
-      {/* Keyframes for live dot */}
       <style>{`
         @keyframes pulsarDot {
           0%, 100% { opacity: 1; transform: scale(1); }
