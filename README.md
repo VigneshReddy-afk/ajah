@@ -13,7 +13,8 @@
 
 ### Open-Source LLM Observability Gateway
 
-**Website:** [useajah.com](https://useajah.com)
+**Website:** https://useajah.com
+**GitHub:** https://github.com/VigneshReddy-afk/ajah
 
 *Intercept · Attribute · Mask · Score · Alert*
 
@@ -131,7 +132,10 @@ docker-compose up -d
 ```
 
 > [!TIP]
-> Dashboard → **http://localhost:3000** · Gateway → **http://localhost:8080**
+> Dashboard → **http://localhost:3000**
+> Gateway → **http://localhost:8080**
+>
+> **Note:** `localhost` refers to the server where you run `docker-compose`. Replace with your server's IP or domain if deploying remotely.
 
 That's it. All services start together: Gateway, Scorer, ClickHouse, Redis, PostgreSQL, Dashboard.
 
@@ -369,6 +373,14 @@ Ajah verifies each claim in the response against your source document using loca
 
 > [!NOTE]
 > The source document is decoded and processed entirely on your server by the local scorer — it is never forwarded to the LLM provider. The `X-Source-Context` header is stripped before the request leaves the gateway.
+
+---
+
+## 🔗 Links
+
+- **Website:** https://useajah.com
+- **GitHub:** https://github.com/VigneshReddy-afk/ajah
+- **Issues:** https://github.com/VigneshReddy-afk/ajah/issues
 
 ---
 
