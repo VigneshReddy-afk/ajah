@@ -12,6 +12,9 @@ services:
       SCORER_URL: http://scorer:8001
       LOG_LEVEL: debug
       ASYNC_WORKER_COUNT: "5"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     depends_on:
       redis:
         condition: service_healthy
@@ -77,6 +80,9 @@ services:
       - gateway
     environment:
       GATEWAY_URL: http://gateway:8080
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     restart: unless-stopped
 
   dashboard:
