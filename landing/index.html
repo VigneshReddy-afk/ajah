@@ -581,7 +581,7 @@
       <div><span class="prompt">$ </span><span class="cmd">cp .env.example .env &amp;&amp; docker-compose up -d</span></div>
       <div>&nbsp;</div>
       <div><span class="prompt"># </span><span class="comment">point your app at the gateway</span></div>
-      <div><span class="prompt">$ </span><span class="cmd">OPENAI_BASE_URL=http://localhost:8080/openai/v1</span></div>
+      <div><span class="prompt">$ </span><span class="cmd">OPENAI_BASE_URL=http://your-server:8080/openai/v1</span></div>
     </div>
   </div>
 </section>
@@ -678,7 +678,7 @@
       <div class="step">
         <div class="step-num">1</div>
         <h3>Point your app at Ajah</h3>
-        <p>Change <code style="font-size:12px;color:var(--text3)">OPENAI_BASE_URL</code> to <code style="font-size:12px;color:var(--text3)">localhost:8080</code>. The gateway forwards every request to the real provider — your existing code is untouched.</p>
+        <p>Change <code style="font-size:12px;color:var(--text3)">OPENAI_BASE_URL</code> to <code style="font-size:12px;color:var(--text3)">your-server:8080</code>. The gateway forwards every request to the real provider — your existing code is untouched.</p>
       </div>
       <div class="step">
         <div class="step-num">2</div>
@@ -688,7 +688,7 @@
       <div class="step">
         <div class="step-num">3</div>
         <h3>Observe on the dashboard</h3>
-        <p>Open <code style="font-size:12px;color:var(--text3)">localhost:3000</code> to see traces, warnings, costs, and session replays. Configure thresholds and webhook alerts per feature.</p>
+        <p>Open <code style="font-size:12px;color:var(--text3)">your-server:3000</code> to see traces, warnings, costs, and session replays. Configure thresholds and webhook alerts per feature.</p>
       </div>
     </div>
   </div>
@@ -726,7 +726,7 @@
 <span class="cmt"># only change: point base_url at ajah</span>
 <span class="var">client</span> = <span class="fn">OpenAI</span>(
     <span class="var">api_key</span>=<span class="str">"your-openai-key"</span>,
-    <span class="var">base_url</span>=<span class="str">"http://localhost:8080/openai/v1"</span>,
+    <span class="var">base_url</span>=<span class="str">"http://your-server:8080/openai/v1"</span>,
 )
 
 <span class="var">response</span> = <span class="var">client</span>.chat.completions.<span class="fn">create</span>(

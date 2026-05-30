@@ -13,6 +13,8 @@
 
 ### Open-Source LLM Observability Gateway
 
+**Website:** [useajah.com](https://useajah.com)
+
 *Intercept · Attribute · Mask · Score · Alert*
 
 <br>
@@ -373,14 +375,6 @@ Ajah verifies each claim in the response against your source document using loca
 ## 🤝 Contributing
 
 Ajah is open source under the MIT license. PRs welcome.
-
-```bash
-# Run tests
-make test
-
-# Run integration tests (requires Docker)
-make test-integration
-```
 
 ---
 
