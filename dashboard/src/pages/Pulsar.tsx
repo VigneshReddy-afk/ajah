@@ -233,10 +233,10 @@ export default function Pulsar() {
       })
     }, 650)
 
-    // Live-data indicator — check every 5s
+    // Live-data indicator — check every 2s
     const liveTimer = setInterval(() => {
       setIsLiveData(Date.now() - lastRealTime.current < 30_000)
-    }, 5_000)
+    }, 2_000)
 
     // Real data polling — every 2 seconds
     const poll = async () => {
@@ -244,12 +244,11 @@ export default function Pulsar() {
         const res = await fetch('http://localhost:8080/metrics/traces')
         if (!res.ok) return
         const traces: TraceRecord[] = await res.json()
+        if (traces.length > 0) lastRealTime.current = Date.now()
         for (const t of traces) {
           if (seenIds.current.has(t.request_id)) continue
           seenIds.current.add(t.request_id)
-          const evt = traceToEvent(t)
-          lastRealTime.current = Date.now()
-          eng.emit(evt)
+          eng.emit(traceToEvent(t))
         }
       } catch {
         // gateway unreachable — field stays empty
