@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   IconLayoutDashboard,
   IconActivity,
+  IconRadar2,
   IconAlertHexagon,
   IconBell,
   IconSettings,
@@ -16,6 +17,7 @@ import type { SessionsResponse, WarningsResponse } from '../api/types'
 const nav = [
   { path: '/overview',  label: 'Overview',  Icon: IconLayoutDashboard },
   { path: '/traces',    label: 'Traces',    Icon: IconActivity },
+  { path: '/pulsar',    label: 'Pulsar',    Icon: IconRadar2, live: true },
   { path: '/sessions',  label: 'Sessions',  Icon: IconGitBranch },
   { path: '/warnings',  label: 'Warnings',  Icon: IconAlertHexagon },
   { path: '/alerts',    label: 'Alerts',    Icon: IconBell },
@@ -25,6 +27,7 @@ const nav = [
 const PAGE_META: Record<string, { title: string; badge?: string }> = {
   '/overview': { title: 'Overview',  badge: 'Today' },
   '/traces':   { title: 'Traces',    badge: 'Live feed' },
+  '/pulsar':   { title: 'Pulsar' },
   '/sessions': { title: 'Sessions' },
   '/warnings': { title: 'Warnings' },
   '/alerts':   { title: 'Alerts' },
@@ -98,7 +101,7 @@ export default function Layout() {
 
         {/* Nav */}
         <nav style={{ flex: 1, padding: 8, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {nav.map(({ path, label, Icon }) => (
+          {nav.map(({ path, label, Icon, live }) => (
             <NavLink
               key={path}
               to={path}
@@ -124,6 +127,15 @@ export default function Layout() {
             >
               <Icon size={15} strokeWidth={1.75} />
               {label}
+              {live && (
+                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: location.pathname === path ? '#185FA5' : 'var(--color-text-tertiary)',
+                    animation: 'pulsarDot 1.4s ease-in-out infinite',
+                  }} />
+                </span>
+              )}
               {path === '/sessions' && sessionsToday > 0 && (
                 <span style={{
                   marginLeft: 'auto',

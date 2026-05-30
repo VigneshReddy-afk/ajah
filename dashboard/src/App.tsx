@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Layout from './components/Layout'
 import Overview from './pages/Overview'
 import Traces from './pages/Traces'
+import Pulsar from './pages/Pulsar'
 import Sessions from './pages/Sessions'
 import Warnings from './pages/Warnings'
 import Alerts from './pages/Alerts'
@@ -27,6 +28,7 @@ export default function App() {
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="overview" element={<Overview />} />
             <Route path="traces" element={<Traces />} />
+            <Route path="pulsar" element={<Pulsar />} />
             <Route path="sessions" element={<Sessions />} />
             <Route path="warnings" element={<Warnings />} />
             <Route path="alerts" element={<Alerts />} />
