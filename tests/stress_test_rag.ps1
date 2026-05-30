@@ -183,7 +183,7 @@ $B1Questions = @(
 for ($i = 0; $i -lt $B1Questions.Count; $i++) {
     $qnum = $i + 1
     Write-Host ""
-    Write-Host "  Q$qnum: $($B1Questions[$i])" -ForegroundColor White
+    Write-Host "  Q${qnum}: $($B1Questions[$i])" -ForegroundColor White
 
     $r = Invoke-Request -Question $B1Questions[$i] -FeatureName "stress-grounded" -SourceB64 $EncMain
 
@@ -236,7 +236,7 @@ $B2Questions = @(
 for ($i = 0; $i -lt $B2Questions.Count; $i++) {
     $qnum = $i + 6
     Write-Host ""
-    Write-Host "  Q$qnum: $($B2Questions[$i])" -ForegroundColor White
+    Write-Host "  Q${qnum}: $($B2Questions[$i])" -ForegroundColor White
 
     $r = Invoke-Request -Question $B2Questions[$i] -FeatureName "stress-unsupported" -SourceB64 $EncMain
 
@@ -292,7 +292,7 @@ $B3Questions = @(
 for ($i = 0; $i -lt $B3Questions.Count; $i++) {
     $qnum = $i + 11
     Write-Host ""
-    Write-Host "  Q$qnum: $($B3Questions[$i])" -ForegroundColor White
+    Write-Host "  Q${qnum}: $($B3Questions[$i])" -ForegroundColor White
 
     $r = Invoke-Request -Question $B3Questions[$i] -FeatureName "stress-contradicted" -SourceB64 $EncFree
 
@@ -378,7 +378,7 @@ for ($i = 0; $i -lt $B4Questions.Count; $i++) {
     $qnum   = $i + 16
     $qshort = if ($B4Questions[$i].Length -gt 90) { $B4Questions[$i].Substring(0, 90) + "..." } else { $B4Questions[$i] }
     Write-Host ""
-    Write-Host "  Q$qnum: $qshort" -ForegroundColor White
+    Write-Host "  Q${qnum}: $qshort" -ForegroundColor White
 
     $r = Invoke-Request -Question $B4Questions[$i] -FeatureName "stress-math"
 
@@ -441,7 +441,7 @@ $B5Questions = @(
 for ($i = 0; $i -lt $B5Questions.Count; $i++) {
     $qnum = $i + 21
     Write-Host ""
-    Write-Host "  Q$qnum: $($B5Questions[$i])" -ForegroundColor White
+    Write-Host "  Q${qnum}: $($B5Questions[$i])" -ForegroundColor White
 
     $r = Invoke-Request -Question $B5Questions[$i] -FeatureName "stress-adversarial" -SourceB64 $EncBasic
 
