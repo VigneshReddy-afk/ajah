@@ -114,6 +114,21 @@ class QualityScorer:
                 logger.warning("RAG verification failed: %s", e)
                 result.rag_verdict = "unavailable"
 
+        # Claim density scoring
+        has_ctx = bool(request.source_context)
+        claim_risk = self._claim_density_score(
+            request.prompt,
+            request.response,
+            has_ctx,
+        )
+        result.claim_density_risk = claim_risk
+
+        if claim_risk > 0.6:
+            if result.hallucination_score < claim_risk * 0.6:
+                result.hallucination_score = claim_risk * 0.6
+            if "high_claim_density" not in result.flags:
+                result.flags.append("high_claim_density")
+
         return result
 
     def _hallucination(self, response: str, similarity: float, is_refusal: bool) -> float:
@@ -124,6 +139,52 @@ class QualityScorer:
             return 0.2
         # Claims present but not grounded in prompt → higher hallucination risk.
         return max(0.0, min(1.0, 1.0 - similarity))
+
+    def _claim_density_score(
+        self,
+        prompt: str,
+        response: str,
+        has_source_context: bool,
+    ) -> float:
+        import re
+
+        response_words = response.split()
+        claim_count = 0
+
+        claim_count += len(re.findall(r'\b(1[89]\d{2}|20\d{2})\b', response))
+        claim_count += len(re.findall(r'\b\d+\.?\d*\s*%', response))
+        claim_count += len(re.findall(r'\b(?!1[89]\d{2}|20\d{2})\d{2,}\b', response))
+
+        sentences = re.split(r'[.!?]\s+', response)
+        for sentence in sentences:
+            words = sentence.split()
+            for word in words[1:]:
+                clean = re.sub(r'[^A-Za-z]', '', word)
+                if len(clean) >= 4 and clean[0].isupper():
+                    claim_count += 1
+
+        absolute_terms = [
+            'always', 'never', 'definitely',
+            'certainly', 'guaranteed', 'proven',
+            'definitively', 'undoubtedly',
+        ]
+        response_lower = response.lower()
+        for term in absolute_terms:
+            if term in response_lower:
+                claim_count += 1
+
+        context_words = len(prompt.split())
+        if has_source_context or context_words > 200:
+            context_multiplier = 0.2
+        elif context_words >= 50:
+            context_multiplier = 0.6
+        else:
+            context_multiplier = 1.0
+
+        response_word_count = max(len(response_words), 1)
+        raw_score = (claim_count / response_word_count) * 10
+        claim_density_risk = min(raw_score * context_multiplier, 1.0)
+        return round(claim_density_risk, 4)
 
     def _toxicity(self, response: str) -> float:
         # Truncate to stay within model input limits.

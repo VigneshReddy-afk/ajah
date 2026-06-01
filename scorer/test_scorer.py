@@ -216,6 +216,99 @@ class TestRAGIntegration:
 
 
 # ---------------------------------------------------------------------------
+# Claim density scoring
+# ---------------------------------------------------------------------------
+
+def test_high_claim_density_low_context():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-density-1",
+        prompt="Tell me about Paris",
+        response=(
+            "Paris was founded in 250 BC. "
+            "The Eiffel Tower was built in 1889 and "
+            "stands 330 meters tall. The city has "
+            "2,161,000 residents as of 2023. GDP "
+            "contribution is 31% of France total. "
+            "Notre Dame Cathedral was completed in 1345."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None,
+    )
+    result = scorer.score(req)
+    assert result.claim_density_risk > 0.6, (
+        f"Expected > 0.6, got {result.claim_density_risk}"
+    )
+
+
+def test_low_claim_density_high_context():
+    scorer = QualityScorer()
+    # Prompt must exceed 200 words to trigger context_multiplier = 0.2
+    long_prompt = (
+        "Paris is the capital and largest city of France. "
+        "It is situated in the north-central part of the country. "
+        "The city has been the political, economic, and cultural centre of France "
+        "for several centuries. Paris is known worldwide for its art museums, "
+        "historical monuments, and vibrant cultural scene. "
+        "The city is home to some of the most famous landmarks in the world, "
+        "including the Eiffel Tower, the Louvre Museum, and Notre Dame Cathedral. "
+        "Paris has a rich history dating back to ancient times when a Celtic tribe "
+        "called the Parisii settled on an island in the Seine river. "
+        "Over the centuries the city grew into one of Europe's most important centres "
+        "of learning, trade, and political power. "
+        "The city is famous for its distinctive Haussmann-era architecture, "
+        "wide boulevards, and elegant public spaces. "
+        "Paris is divided into administrative districts and is governed by a mayor. "
+        "The city attracts tens of millions of tourists every year from around the world. "
+        "French cuisine, fashion, and philosophy have all been deeply shaped by Parisian culture. "
+        "The city has a well-developed public transport network including the Metro. "
+        "Paris is also a major hub for international business, finance, and diplomacy. "
+        "Many international organisations have their headquarters in or near the city. "
+        "The Seine river runs through the heart of the city and is a defining feature "
+        "of the Parisian landscape and identity."
+    )
+    req = ScoreRequest(
+        request_id="test-density-2",
+        prompt=long_prompt,
+        response=(
+            "Paris is the capital of France and one of the most visited cities "
+            "in the world. It is widely known for its art, culture, and architecture."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None,
+    )
+    result = scorer.score(req)
+    assert result.claim_density_risk < 0.4, (
+        f"Expected < 0.4, got {result.claim_density_risk}"
+    )
+
+
+def test_flag_added_when_density_high():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-density-3",
+        prompt="What happened in history",
+        response=(
+            "In 1776 the Declaration of Independence "
+            "was signed. Napoleon Bonaparte conquered "
+            "Europe in 1805. The French Revolution "
+            "began in 1789 with 100% certainty. "
+            "Approximately 40000 people were executed. "
+            "The Bastille fell on July 14th 1789."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None,
+    )
+    result = scorer.score(req)
+    assert "high_claim_density" in result.flags, (
+        f"Expected flag, got flags: {result.flags}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Health endpoint
 # ---------------------------------------------------------------------------
 
