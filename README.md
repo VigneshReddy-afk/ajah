@@ -376,6 +376,64 @@ Ajah verifies each claim in the response against your source document using loca
 
 ---
 
+## 💼 Pricing
+
+<table>
+<tr>
+<td width="33%">
+
+### 🆓 Self-Hosted
+**Free forever**
+
+Full open source, MIT license.
+You run it, you own it.
+No limits, no restrictions.
+Community support via GitHub Issues.
+
+[**Get Started →**](#-quick-start)
+
+</td>
+<td width="33%">
+
+### ☁️ Managed Cloud
+**$199 / month**
+
+We run it for you on dedicated
+infrastructure. Your data never
+leaves your instance.
+
+- Live in 24 hours
+- Email support included
+- 14-day free trial
+
+[**Email us →**](mailto:vigneshreddy181200@gmail.com)
+
+</td>
+<td width="33%">
+
+### 🏢 Enterprise
+**Contact us**
+
+Custom deployment on your
+infrastructure with SLA guarantee.
+
+- Priority support
+- SSO + RBAC + audit logs
+- Compliance documentation
+- Custom feature development
+
+[**Contact →**](mailto:vigneshreddy181200@gmail.com)
+
+</td>
+</tr>
+</table>
+
+> Questions or want managed hosting?
+> Email **vigneshreddy181200@gmail.com** —
+> we'll have you running within 24 hours.
+
+---
+
 ## 🔗 Links
 
 - **Website:** https://useajah.com
