@@ -202,7 +202,7 @@ func run() error {
 					rdb.Expire(ctx, warnCountKey, dailyKeyTTL)
 				}
 			}
-			if riskFlag.RiskLevel == "high" {
+			if riskFlag.ShouldWarn {
 				wi := warningItem{
 					RequestID:         riskFlag.RequestID,
 					SessionID:         riskFlag.SessionID,
@@ -212,10 +212,11 @@ func run() error {
 					GroundingScore:    riskFlag.GroundingScore,
 					Reasons:           riskFlag.Reasons,
 					Timestamp:         event.Timestamp,
+					RAGVerdict:        scorerOut.RAGVerdict,
 				}
 				if wiJSON, marshalErr := json.Marshal(wi); marshalErr == nil {
-					rdb.LPush(ctx, "warnings:high:list", string(wiJSON))
-					rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+					rdb.LPush(ctx, "warnings:list", string(wiJSON))
+					rdb.LTrim(ctx, "warnings:list", 0, 99)
 				}
 			}
 

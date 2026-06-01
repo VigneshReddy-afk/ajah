@@ -58,7 +58,7 @@ type traceResponse struct {
 	CrossModelAgreement float64   `json:"cross_model_agreement"`
 }
 
-// warningItem is the JSON shape of a single high-risk response stored in Redis
+// warningItem is the JSON shape of a single flagged response stored in Redis
 // and returned by GET /warnings.
 type warningItem struct {
 	RequestID         string    `json:"request_id"`
@@ -69,6 +69,7 @@ type warningItem struct {
 	GroundingScore    float64   `json:"grounding_score"`
 	Reasons           []string  `json:"reasons"`
 	Timestamp         time.Time `json:"timestamp"`
+	RAGVerdict        string    `json:"rag_verdict"`
 }
 
 // tracesHandler returns the 100 most recent traces from ClickHouse.
@@ -359,7 +360,7 @@ func warningsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
 		ctx := r.Context()
 		today := time.Now().UTC().Format("2006-01-02")
 
-		items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+		items, err := rdb.LRange(ctx, "warnings:list", 0, 99).Result()
 		if err != nil {
 			logger.Error("read warnings list", zap.Error(err))
 			http.Error(w, "failed to read warnings", http.StatusInternalServerError)

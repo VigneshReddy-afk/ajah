@@ -558,12 +558,12 @@ func TestHallucinationFlagging(t *testing.T) {
 
 	// Record list length before the test so we can detect our new entry even
 	// if the list already has entries from earlier runs.
-	initialLen, _ := rdb.LLen(ctx, "warnings:high:list").Result()
+	initialLen, _ := rdb.LLen(ctx, "warnings:list").Result()
 
 	t.Cleanup(func() {
 		_ = rdb.Del(context.Background(), "flag:"+reqID).Err()
 		// Trim the one entry we pushed rather than wiping the whole list.
-		rdb.LTrim(context.Background(), "warnings:high:list", 0, initialLen-1)
+		rdb.LTrim(context.Background(), "warnings:list", 0, initialLen-1)
 	})
 
 	mock := mockProvider()
@@ -604,8 +604,8 @@ func TestHallucinationFlagging(t *testing.T) {
 		}
 		if riskFlag.RiskLevel == "high" {
 			item, _ := json.Marshal(riskFlag)
-			rdb.LPush(ctx, "warnings:high:list", string(item))
-			rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+			rdb.LPush(ctx, "warnings:list", string(item))
+			rdb.LTrim(ctx, "warnings:list", 0, 99)
 		}
 
 		record := storage.TraceRecord{
@@ -700,12 +700,12 @@ func TestHallucinationFlagging(t *testing.T) {
 		trace.RiskLevel, trace.HallucinationRisk, trace.GroundingScore, trace.ShouldWarn)
 
 	// ── Assert 2: GET /warnings — list has the new entry with our request ID ──
-	items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+	items, err := rdb.LRange(ctx, "warnings:list", 0, 99).Result()
 	if err != nil {
-		t.Fatalf("read warnings:high:list: %v", err)
+		t.Fatalf("read warnings:list: %v", err)
 	}
 	if int64(len(items)) <= initialLen {
-		t.Errorf("warnings:high:list length = %d, want > %d (no new entry added)", len(items), initialLen)
+		t.Errorf("warnings:list length = %d, want > %d (no new entry added)", len(items), initialLen)
 	}
 	found := false
 	for _, item := range items {
@@ -715,9 +715,9 @@ func TestHallucinationFlagging(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("request_id %q not found in warnings:high:list", reqID)
+		t.Errorf("request_id %q not found in warnings:list", reqID)
 	}
-	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
+	t.Logf("warnings:list: %d entries, request %q present: %v", len(items), reqID, found)
 
 	// ── Assert 3: warnings:daily counter incremented ──────────────────────────
 	count, err := rdb.Get(ctx, warnCountKey).Int64()
@@ -736,7 +736,7 @@ func TestHallucinationFlagging(t *testing.T) {
 //   - The scorer received source_context in the scoring payload
 //   - The trace in ClickHouse has rag_verdict="contradicted" and rag_contradiction_score=0.75
 //   - RiskLevel is "high" due to the contradiction override in the flagger
-//   - The warning appears in Redis warnings:high:list
+//   - The warning appears in Redis warnings:list
 
 func TestRAGVerification(t *testing.T) {
 	const reqID = "rag-verification-req-001"
@@ -766,11 +766,11 @@ func TestRAGVerification(t *testing.T) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 	warnCountKey := fmt.Sprintf("warnings:daily:%s", today)
-	initialLen, _ := rdb.LLen(ctx, "warnings:high:list").Result()
+	initialLen, _ := rdb.LLen(ctx, "warnings:list").Result()
 
 	t.Cleanup(func() {
 		_ = rdb.Del(context.Background(), "flag:"+reqID).Err()
-		rdb.LTrim(context.Background(), "warnings:high:list", 0, initialLen-1)
+		rdb.LTrim(context.Background(), "warnings:list", 0, initialLen-1)
 	})
 
 	mock := mockProvider()
@@ -840,8 +840,8 @@ func TestRAGVerification(t *testing.T) {
 		}
 		if riskFlag.RiskLevel == "high" {
 			item, _ := json.Marshal(riskFlag)
-			rdb.LPush(ctx, "warnings:high:list", string(item))
-			rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+			rdb.LPush(ctx, "warnings:list", string(item))
+			rdb.LTrim(ctx, "warnings:list", 0, 99)
 		}
 
 		record := storage.TraceRecord{
@@ -946,13 +946,13 @@ func TestRAGVerification(t *testing.T) {
 	t.Logf("ClickHouse trace: rag_verdict=%s rag_contradiction=%.2f risk_level=%s should_warn=%v",
 		trace.RAGVerdict, trace.RAGContradictionScore, trace.RiskLevel, trace.ShouldWarn)
 
-	// ── Assert: warning appears in Redis warnings:high:list ───────────────────
-	items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+	// ── Assert: warning appears in Redis warnings:list ───────────────────
+	items, err := rdb.LRange(ctx, "warnings:list", 0, 99).Result()
 	if err != nil {
-		t.Fatalf("read warnings:high:list: %v", err)
+		t.Fatalf("read warnings:list: %v", err)
 	}
 	if int64(len(items)) <= initialLen {
-		t.Errorf("warnings:high:list length = %d, want > %d (no new entry added)", len(items), initialLen)
+		t.Errorf("warnings:list length = %d, want > %d (no new entry added)", len(items), initialLen)
 	}
 	found := false
 	for _, item := range items {
@@ -962,9 +962,9 @@ func TestRAGVerification(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("request_id %q not found in warnings:high:list", reqID)
+		t.Errorf("request_id %q not found in warnings:list", reqID)
 	}
-	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
+	t.Logf("warnings:list: %d entries, request %q present: %v", len(items), reqID, found)
 
 	// ── Assert: warnings:daily counter incremented ────────────────────────────
 	count, err := rdb.Get(ctx, warnCountKey).Int64()
@@ -987,7 +987,7 @@ func TestRAGVerification(t *testing.T) {
 // "fact-check" feature. Verifies:
 //   - TraceRecord has cross_model_verdict="disagree" and cross_model_agreement<0.5
 //   - ShouldWarn=true and risk_level="medium" in ClickHouse
-//   - Warning entry appears in Redis warnings:high:list
+//   - Warning entry appears in Redis warnings:list
 //   - Daily warning counter incremented
 
 func TestCrossModelVerification(t *testing.T) {
@@ -1037,11 +1037,11 @@ func TestCrossModelVerification(t *testing.T) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 	warnCountKey := fmt.Sprintf("warnings:daily:%s", today)
-	initialLen, _ := rdb.LLen(ctx, "warnings:high:list").Result()
+	initialLen, _ := rdb.LLen(ctx, "warnings:list").Result()
 
 	t.Cleanup(func() {
 		_ = rdb.Del(context.Background(), "flag:"+reqID).Err()
-		rdb.LTrim(context.Background(), "warnings:high:list", 0, initialLen-1)
+		rdb.LTrim(context.Background(), "warnings:list", 0, initialLen-1)
 	})
 
 	logger := zap.NewNop()
@@ -1095,8 +1095,8 @@ func TestCrossModelVerification(t *testing.T) {
 				"reasons":      reasons,
 				"timestamp":    event.Timestamp,
 			})
-			rdb.LPush(ctx, "warnings:high:list", string(item))
-			rdb.LTrim(ctx, "warnings:high:list", 0, 99)
+			rdb.LPush(ctx, "warnings:list", string(item))
+			rdb.LTrim(ctx, "warnings:list", 0, 99)
 		}
 
 		record := storage.TraceRecord{
@@ -1200,12 +1200,12 @@ func TestCrossModelVerification(t *testing.T) {
 		trace.CrossModelVerdict, trace.CrossModelAgreement, trace.RiskLevel, trace.ShouldWarn)
 
 	// ── Assert 2: warning entry in Redis ─────────────────────────────────────
-	items, err := rdb.LRange(ctx, "warnings:high:list", 0, 99).Result()
+	items, err := rdb.LRange(ctx, "warnings:list", 0, 99).Result()
 	if err != nil {
-		t.Fatalf("read warnings:high:list: %v", err)
+		t.Fatalf("read warnings:list: %v", err)
 	}
 	if int64(len(items)) <= initialLen {
-		t.Errorf("warnings:high:list length = %d, want > %d (no new entry added)", len(items), initialLen)
+		t.Errorf("warnings:list length = %d, want > %d (no new entry added)", len(items), initialLen)
 	}
 	found := false
 	for _, item := range items {
@@ -1215,9 +1215,9 @@ func TestCrossModelVerification(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("request_id %q not found in warnings:high:list", reqID)
+		t.Errorf("request_id %q not found in warnings:list", reqID)
 	}
-	t.Logf("warnings:high:list: %d entries, request %q present: %v", len(items), reqID, found)
+	t.Logf("warnings:list: %d entries, request %q present: %v", len(items), reqID, found)
 
 	// ── Assert 3: daily warning counter incremented ───────────────────────────
 	count, err := rdb.Get(ctx, warnCountKey).Int64()
