@@ -2,41 +2,20 @@ package flagging
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"go.uber.org/zap"
 )
 
-func newTestFlagger(t *testing.T, scorerURL string) *Flagger {
+func newTestFlagger(t *testing.T) *Flagger {
 	t.Helper()
-	return New(scorerURL, zap.NewNop())
-}
-
-func mockScorer(hallucination, grounding float64) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"request_id":               "test",
-			"hallucination_score":      hallucination,
-			"factual_consistency_score": grounding,
-			"toxicity_score":           0.0,
-			"overall_quality_score":    0.5,
-			"flags":                    []string{},
-			"processing_ms":            10,
-		})
-	}))
+	return New(zap.NewNop())
 }
 
 func TestEvaluate_HighRiskOnLowGrounding(t *testing.T) {
-	srv := mockScorer(0.2, 0.25) // grounding < 0.3 → high
-	defer srv.Close()
-
-	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-1", "sess-1", "prompt", "response", 0.5, "")
+	f := newTestFlagger(t)
+	flag := f.Evaluate(context.Background(), "req-1", "sess-1", 0.2, 0.25, 0.0, nil, "")
 
 	if flag.RiskLevel != "high" {
 		t.Errorf("expected RiskLevel=high, got %q", flag.RiskLevel)
@@ -59,11 +38,8 @@ func TestEvaluate_HighRiskOnLowGrounding(t *testing.T) {
 }
 
 func TestEvaluate_HighRiskOnHighHallucination(t *testing.T) {
-	srv := mockScorer(0.82, 0.65) // hallucination > 0.7 → high
-	defer srv.Close()
-
-	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-2", "sess-2", "prompt", "response", 0.4, "")
+	f := newTestFlagger(t)
+	flag := f.Evaluate(context.Background(), "req-2", "sess-2", 0.82, 0.65, 0.0, nil, "")
 
 	if flag.RiskLevel != "high" {
 		t.Errorf("expected RiskLevel=high, got %q", flag.RiskLevel)
@@ -80,11 +56,8 @@ func TestEvaluate_HighRiskOnHighHallucination(t *testing.T) {
 }
 
 func TestEvaluate_MediumRisk(t *testing.T) {
-	srv := mockScorer(0.55, 0.45) // hallucination in [0.4,0.7] and grounding in [0.3,0.5] → medium
-	defer srv.Close()
-
-	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-3", "sess-3", "prompt", "response", 0.5, "")
+	f := newTestFlagger(t)
+	flag := f.Evaluate(context.Background(), "req-3", "sess-3", 0.55, 0.45, 0.0, nil, "")
 
 	if flag.RiskLevel != "medium" {
 		t.Errorf("expected RiskLevel=medium, got %q", flag.RiskLevel)
@@ -101,11 +74,8 @@ func TestEvaluate_MediumRisk(t *testing.T) {
 }
 
 func TestEvaluate_LowRisk(t *testing.T) {
-	srv := mockScorer(0.1, 0.90) // both fine → low
-	defer srv.Close()
-
-	f := newTestFlagger(t, srv.URL)
-	flag := f.Evaluate(context.Background(), "req-4", "sess-4", "prompt", "response", 0.9, "")
+	f := newTestFlagger(t)
+	flag := f.Evaluate(context.Background(), "req-4", "sess-4", 0.1, 0.90, 0.0, nil, "")
 
 	if flag.RiskLevel != "low" {
 		t.Errorf("expected RiskLevel=low, got %q", flag.RiskLevel)
@@ -121,26 +91,34 @@ func TestEvaluate_LowRisk(t *testing.T) {
 	}
 }
 
-func TestEvaluate_ScorerUnavailableReturnsUnknown(t *testing.T) {
-	// Point at a dead address — no server running there.
-	f := newTestFlagger(t, "http://127.0.0.1:19999")
-	flag := f.Evaluate(context.Background(), "req-5", "sess-5", "prompt", "response", 0.0, "")
+func TestEvaluate_ClaimDensityFlagAddsReason(t *testing.T) {
+	f := newTestFlagger(t)
+	flags := []string{"high_claim_density"}
+	flag := f.Evaluate(context.Background(), "req-5", "sess-5", 0.55, 0.45, 0.75, flags, "")
 
-	if flag.RiskLevel != "unknown" {
-		t.Errorf("expected RiskLevel=unknown, got %q", flag.RiskLevel)
+	if !containsSubstr(flag.Reasons, "High claim density detected") {
+		t.Errorf("expected claim density reason, got %v", flag.Reasons)
 	}
-	if flag.ShouldWarn {
-		t.Error("expected ShouldWarn=false when scorer unavailable")
+}
+
+func TestEvaluate_ToxicityFlagAddsReason(t *testing.T) {
+	f := newTestFlagger(t)
+	flags := []string{"toxicity_detected"}
+	flag := f.Evaluate(context.Background(), "req-6", "sess-6", 0.55, 0.45, 0.0, flags, "")
+
+	if !containsSubstr(flag.Reasons, "Toxic or harmful content") {
+		t.Errorf("expected toxicity reason, got %v", flag.Reasons)
 	}
-	if len(flag.Reasons) != 1 || flag.Reasons[0] != "scoring unavailable" {
-		t.Errorf("expected [\"scoring unavailable\"], got %v", flag.Reasons)
+}
+
+func TestEvaluate_RequestIDPreserved(t *testing.T) {
+	f := newTestFlagger(t)
+	flag := f.Evaluate(context.Background(), "req-7", "sess-7", 0.1, 0.9, 0.0, nil, "")
+	if flag.RequestID != "req-7" {
+		t.Errorf("expected RequestID=req-7, got %q", flag.RequestID)
 	}
-	// RequestID and SessionID must still be populated.
-	if flag.RequestID != "req-5" {
-		t.Errorf("expected RequestID=req-5, got %q", flag.RequestID)
-	}
-	if flag.SessionID != "sess-5" {
-		t.Errorf("expected SessionID=sess-5, got %q", flag.SessionID)
+	if flag.SessionID != "sess-7" {
+		t.Errorf("expected SessionID=sess-7, got %q", flag.SessionID)
 	}
 }
 

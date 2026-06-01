@@ -582,7 +582,8 @@ func TestHallucinationFlagging(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	flgr := flagging.New(scorer.URL, logger)
+	flgr := flagging.New(logger)
+	scorerClientInteg := &http.Client{Timeout: 10 * time.Second}
 	const dailyKeyTTL = 90 * 24 * time.Hour
 
 	processFn := func(ctx context.Context, event events.RequestEvent) error {
@@ -590,8 +591,36 @@ func TestHallucinationFlagging(t *testing.T) {
 			return nil
 		}
 
+		// Call scorer to get full outcome before flagging.
+		type integScorerOutcome struct {
+			HallucinationScore      float64  `json:"hallucination_score"`
+			FactualConsistencyScore float64  `json:"factual_consistency_score"`
+			ClaimDensityRisk        float64  `json:"claim_density_risk"`
+			Flags                   []string `json:"flags"`
+			RAGVerdict              string   `json:"rag_verdict"`
+		}
+		var scorerOut integScorerOutcome
+		if payloadBytes, err := json.Marshal(map[string]string{
+			"request_id":   event.RequestID,
+			"prompt":       event.Prompt,
+			"response":     event.Response,
+			"model":        event.Model,
+			"feature_name": event.FeatureName,
+		}); err == nil {
+			if req, err := http.NewRequestWithContext(ctx, http.MethodPost, scorer.URL+"/score", bytes.NewReader(payloadBytes)); err == nil {
+				req.Header.Set("Content-Type", "application/json")
+				if resp, err := scorerClientInteg.Do(req); err == nil {
+					raw, _ := io.ReadAll(resp.Body)
+					_ = resp.Body.Close()
+					_ = json.Unmarshal(raw, &scorerOut)
+				}
+			}
+		}
+
 		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
-		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, 0.0, "")
+		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID,
+			scorerOut.HallucinationScore, scorerOut.FactualConsistencyScore,
+			scorerOut.ClaimDensityRisk, scorerOut.Flags, scorerOut.RAGVerdict)
 		flagCancel()
 
 		// Mirror exactly what the real processFn does.
@@ -789,16 +818,19 @@ func TestRAGVerification(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	flgr := flagging.New(scorer.URL, logger)
+	flgr := flagging.New(logger)
 	scorerClient := &http.Client{Timeout: 10 * time.Second}
 	const dailyKeyTTL = 90 * 24 * time.Hour
 
-	// Local mirror of main.go scorerOutcome — only the fields we need.
+	// Local mirror of main.go scorerOutcome — all fields needed for flagging.
 	type ragOutcome struct {
-		OverallQualityScore   float64 `json:"overall_quality_score"`
-		RAGVerdict            string  `json:"rag_verdict"`
-		RAGGroundingScore     float64 `json:"rag_grounding_score"`
-		RAGContradictionScore float64 `json:"rag_contradiction_score"`
+		HallucinationScore      float64  `json:"hallucination_score"`
+		FactualConsistencyScore float64  `json:"factual_consistency_score"`
+		ClaimDensityRisk        float64  `json:"claim_density_risk"`
+		Flags                   []string `json:"flags"`
+		RAGVerdict              string   `json:"rag_verdict"`
+		RAGGroundingScore       float64  `json:"rag_grounding_score"`
+		RAGContradictionScore   float64  `json:"rag_contradiction_score"`
 	}
 
 	processFn := func(ctx context.Context, event events.RequestEvent) error {
@@ -806,7 +838,7 @@ func TestRAGVerification(t *testing.T) {
 			return nil
 		}
 
-		// Call scorer explicitly to obtain full RAG outcome (mirrors main.go callScorer).
+		// Call scorer explicitly to obtain full outcome (mirrors main.go callScorer).
 		var outcome ragOutcome
 		if payloadBytes, err := json.Marshal(map[string]string{
 			"request_id":     event.RequestID,
@@ -828,7 +860,8 @@ func TestRAGVerification(t *testing.T) {
 
 		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
 		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID,
-			event.Prompt, event.Response, outcome.OverallQualityScore, outcome.RAGVerdict)
+			outcome.HallucinationScore, outcome.FactualConsistencyScore,
+			outcome.ClaimDensityRisk, outcome.Flags, outcome.RAGVerdict)
 		flagCancel()
 
 		if riskFlag.ShouldWarn {

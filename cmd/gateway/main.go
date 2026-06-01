@@ -111,7 +111,7 @@ func run() error {
 	scorerClient := &http.Client{Timeout: 10 * time.Second}
 
 	// 8b. Risk flagger (async; never blocks the response path) -----------------
-	flagger := flagging.New(cfg.ScorerURL, logger)
+	flagger := flagging.New(logger)
 	webhookClient := &http.Client{Timeout: time.Duration(cfg.WebhookTimeoutSeconds) * time.Second}
 
 	// 8c. Cross-model verifier (opt-in per feature) ----------------------------
@@ -163,7 +163,16 @@ func run() error {
 		var crossModelAgreement float64
 		if event.StatusCode == http.StatusOK {
 			flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
-			riskFlag = flagger.Evaluate(flagCtx, event.RequestID, event.SessionID, event.Prompt, event.Response, qualityScore, scorerOut.RAGVerdict)
+			riskFlag = flagger.Evaluate(
+					flagCtx,
+					event.RequestID,
+					event.SessionID,
+					scorerOut.HallucinationScore,
+					scorerOut.FactualConsistencyScore,
+					scorerOut.ClaimDensityRisk,
+					scorerOut.Flags,
+					scorerOut.RAGVerdict,
+				)
 			flagCancel()
 
 			// Step 3c: cross-model verification (opt-in per feature; best-effort)
@@ -558,13 +567,18 @@ type scorerPayload struct {
 }
 
 type scorerOutcome struct {
-	OverallQualityScore   float64  `json:"overall_quality_score"`
-	RAGVerdict            string   `json:"rag_verdict"`
-	RAGGroundingScore     float64  `json:"rag_grounding_score"`
-	RAGContradictionScore float64  `json:"rag_contradiction_score"`
-	RAGSupportedClaims    []string `json:"rag_supported_claims"`
-	RAGUnsupportedClaims  []string `json:"rag_unsupported_claims"`
-	RAGContradictedClaims []string `json:"rag_contradicted_claims"`
+	OverallQualityScore     float64  `json:"overall_quality_score"`
+	HallucinationScore      float64  `json:"hallucination_score"`
+	FactualConsistencyScore float64  `json:"factual_consistency_score"`
+	ToxicityScore           float64  `json:"toxicity_score"`
+	ClaimDensityRisk        float64  `json:"claim_density_risk"`
+	Flags                   []string `json:"flags"`
+	RAGVerdict              string   `json:"rag_verdict"`
+	RAGGroundingScore       float64  `json:"rag_grounding_score"`
+	RAGContradictionScore   float64  `json:"rag_contradiction_score"`
+	RAGSupportedClaims      []string `json:"rag_supported_claims"`
+	RAGUnsupportedClaims    []string `json:"rag_unsupported_claims"`
+	RAGContradictedClaims   []string `json:"rag_contradicted_claims"`
 }
 
 // callScorer posts to the quality scorer service and returns the full scorerOutcome.
