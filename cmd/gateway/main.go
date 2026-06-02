@@ -20,10 +20,12 @@ import (
 	"github.com/ajah/core/internal/events"
 	"github.com/ajah/core/internal/flagging"
 	"github.com/ajah/core/internal/masking"
+	"github.com/ajah/core/internal/metrics"
 	"github.com/ajah/core/internal/proxy"
 	"github.com/ajah/core/internal/sessions"
 	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -152,7 +154,9 @@ func run() error {
 		var scorerOut scorerOutcome
 		if event.StatusCode == http.StatusOK {
 			scoreCtx, scoreCancel := context.WithTimeout(ctx, 10*time.Second)
+			scorerStart := time.Now()
 			scorerOut = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, logger)
+			metrics.ScorerLatencyMs.Observe(float64(time.Since(scorerStart).Milliseconds()))
 			qualityScore = scorerOut.OverallQualityScore
 			scoreCancel()
 		}
@@ -281,6 +285,39 @@ func run() error {
 			CrossModelAgreement:   crossModelAgreement,
 		}
 		writeErr := writer.Write(ctx, record)
+
+		// Prometheus instrumentation (unconditional — fires even on write error)
+		metrics.RequestsTotal.WithLabelValues(
+			event.Provider,
+			event.Model,
+			event.FeatureName,
+			fmt.Sprintf("%d", event.StatusCode),
+		).Inc()
+		metrics.CostUSDTotal.WithLabelValues(
+			event.FeatureName,
+			event.Model,
+		).Add(costRecord.CostUSD)
+		metrics.LatencyMs.WithLabelValues(
+			event.Provider,
+			event.Model,
+		).Observe(float64(event.LatencyMs))
+		metrics.HallucinationRisk.WithLabelValues(
+			event.FeatureName,
+		).Set(riskFlag.HallucinationRisk)
+		if maskResult.WasMasked {
+			metrics.PIIDetectionsTotal.WithLabelValues(
+				event.FeatureName,
+			).Inc()
+		}
+		if riskFlag.ShouldWarn {
+			metrics.WarningsTotal.WithLabelValues(
+				riskFlag.RiskLevel,
+			).Inc()
+		}
+		metrics.ClaimDensityRisk.WithLabelValues(
+			event.FeatureName,
+		).Set(scorerOut.ClaimDensityRisk)
+
 		if writeErr != nil {
 			if firstErr == nil {
 				firstErr = writeErr
@@ -361,7 +398,10 @@ func run() error {
 		}
 	}()
 
-	// 10. Proxy handler --------------------------------------------------------
+	// 10. Prometheus metrics registration -------------------------------------
+	metrics.Register()
+
+	// 10b. Proxy handler -------------------------------------------------------
 	proxyHandler := proxy.New(cfg, emitter, logger)
 
 	// 11. Router ---------------------------------------------------------------
@@ -370,6 +410,7 @@ func run() error {
 
 	r.Post("/v1/chat/completions", proxyHandler.ServeHTTP)
 	r.Get("/health", healthHandler)
+	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/metrics/cost", costMetricsHandler(rdb, logger))
 	r.Get("/metrics/traces", tracesHandler(writer, logger))
 	r.Get("/metrics/alerts", alertsHandler(rdb, logger))
