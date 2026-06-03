@@ -439,6 +439,7 @@ infrastructure with SLA guarantee.
 - **Website:** https://useajah.com
 - **GitHub:** https://github.com/VigneshReddy-afk/ajah
 - **Issues:** https://github.com/VigneshReddy-afk/ajah/issues
+- **Discord:** https://discord.gg/JktkwHbWx
 
 ---
 
