@@ -39,6 +39,7 @@ func (f *Flagger) Evaluate(
 	hallucinationScore      float64,
 	factualConsistencyScore float64,
 	claimDensityRisk        float64,
+	hedgeRisk               float64,
 	flags                   []string,
 	ragVerdict              string,
 ) RiskFlag {
@@ -52,7 +53,7 @@ func (f *Flagger) Evaluate(
 	riskLevel := f.computeRiskLevel(hallucinationScore, factualConsistencyScore)
 	base.RiskLevel = riskLevel
 	base.ShouldWarn = riskLevel == "high" || riskLevel == "medium"
-	base.Reasons = f.buildReasons(hallucinationScore, factualConsistencyScore, claimDensityRisk, riskLevel, flags)
+	base.Reasons = f.buildReasons(hallucinationScore, factualConsistencyScore, claimDensityRisk, hedgeRisk, riskLevel, flags)
 	return f.applyRAGVerdict(base, ragVerdict)
 }
 
@@ -82,7 +83,7 @@ func (f *Flagger) computeRiskLevel(hallucination, grounding float64) string {
 	return "low"
 }
 
-func (f *Flagger) buildReasons(hallucination, grounding, claimDensityRisk float64, riskLevel string, flags []string) []string {
+func (f *Flagger) buildReasons(hallucination, grounding, claimDensityRisk, hedgeRisk float64, riskLevel string, flags []string) []string {
 	var reasons []string
 	if grounding <= 0.5 {
 		reasons = append(reasons, fmt.Sprintf("Response shows weak grounding in the prompt (score: %.2f)", grounding))
@@ -98,6 +99,13 @@ func (f *Flagger) buildReasons(hallucination, grounding, claimDensityRisk float6
 	}
 	if contains(flags, "toxicity_detected") {
 		reasons = append(reasons, "Toxic or harmful content detected in response")
+	}
+	if hedgeRisk > 0.5 {
+		reasons = append(reasons,
+			fmt.Sprintf(
+				"Overconfident response detected on complex question (hedge risk: %.2f)",
+				hedgeRisk,
+			))
 	}
 	if riskLevel == "low" {
 		reasons = append(reasons, "Response is well-grounded and consistent")

@@ -67,6 +67,14 @@ var (
 		},
 		[]string{"feature"},
 	)
+
+	HedgeRisk = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ajah_hedge_risk",
+			Help: "Latest linguistic hedge risk score per feature",
+		},
+		[]string{"feature"},
+	)
 )
 
 func Register() {
@@ -79,5 +87,6 @@ func Register() {
 		WarningsTotal,
 		ScorerLatencyMs,
 		ClaimDensityRisk,
+		HedgeRisk,
 	)
 }

@@ -174,6 +174,7 @@ func run() error {
 					scorerOut.HallucinationScore,
 					scorerOut.FactualConsistencyScore,
 					scorerOut.ClaimDensityRisk,
+					scorerOut.HedgeRisk,
 					scorerOut.Flags,
 					scorerOut.RAGVerdict,
 				)
@@ -317,6 +318,9 @@ func run() error {
 		metrics.ClaimDensityRisk.WithLabelValues(
 			event.FeatureName,
 		).Set(scorerOut.ClaimDensityRisk)
+		metrics.HedgeRisk.WithLabelValues(
+			event.FeatureName,
+		).Set(scorerOut.HedgeRisk)
 
 		if writeErr != nil {
 			if firstErr == nil {
@@ -613,6 +617,7 @@ type scorerOutcome struct {
 	FactualConsistencyScore float64  `json:"factual_consistency_score"`
 	ToxicityScore           float64  `json:"toxicity_score"`
 	ClaimDensityRisk        float64  `json:"claim_density_risk"`
+	HedgeRisk               float64  `json:"hedge_risk"`
 	Flags                   []string `json:"flags"`
 	RAGVerdict              string   `json:"rag_verdict"`
 	RAGGroundingScore       float64  `json:"rag_grounding_score"`
