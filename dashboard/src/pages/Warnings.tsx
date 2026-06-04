@@ -144,7 +144,7 @@ function isRAGIssue(w: WarningItem): boolean {
 }
 
 export default function Warnings() {
-  const [ragOnly, setRagOnly] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'rag' | 'hedge'>('all')
 
   const { data, isLoading, error } = useQuery<WarningsResponse>({
     queryKey: ['warnings'],
@@ -173,7 +173,15 @@ export default function Warnings() {
     w.reasons.some(r => r.includes('Cross-model'))
   ).length
 
-  const displayed = ragOnly ? warnings.filter(isRAGIssue) : warnings
+  const displayed = filter === 'rag'
+    ? warnings.filter(isRAGIssue)
+    : filter === 'hedge'
+    ? warnings.filter(w =>
+        w.reasons?.some(r =>
+          r.toLowerCase().includes('overconfident')
+        )
+      )
+    : warnings
 
   if (isLoading) {
     return <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
@@ -197,34 +205,49 @@ export default function Warnings() {
       {/* ── Filter bar ── */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button
-          onClick={() => setRagOnly(false)}
+          onClick={() => setFilter('all')}
           style={{
             padding: '5px 14px',
             borderRadius: 6,
             border: '0.5px solid var(--color-border-tertiary)',
-            background: !ragOnly ? 'var(--color-background-secondary)' : 'transparent',
-            color: !ragOnly ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+            background: filter === 'all' ? 'var(--color-background-secondary)' : 'transparent',
+            color: filter === 'all' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
             fontSize: 'var(--sz-xs)',
-            fontWeight: !ragOnly ? 600 : 400,
+            fontWeight: filter === 'all' ? 600 : 400,
             cursor: 'pointer',
           }}
         >
           All warnings
         </button>
         <button
-          onClick={() => setRagOnly(true)}
+          onClick={() => setFilter('rag')}
           style={{
             padding: '5px 14px',
             borderRadius: 6,
-            border: ragOnly ? `0.5px solid ${HIGH_COLOR}` : '0.5px solid var(--color-border-tertiary)',
-            background: ragOnly ? HIGH_BG : 'transparent',
-            color: ragOnly ? HIGH_COLOR : 'var(--color-text-tertiary)',
+            border: filter === 'rag' ? `0.5px solid ${HIGH_COLOR}` : '0.5px solid var(--color-border-tertiary)',
+            background: filter === 'rag' ? HIGH_BG : 'transparent',
+            color: filter === 'rag' ? HIGH_COLOR : 'var(--color-text-tertiary)',
             fontSize: 'var(--sz-xs)',
-            fontWeight: ragOnly ? 600 : 400,
+            fontWeight: filter === 'rag' ? 600 : 400,
             cursor: 'pointer',
           }}
         >
           RAG Issues Only
+        </button>
+        <button
+          onClick={() => setFilter('hedge')}
+          style={{
+            padding: '5px 14px',
+            borderRadius: 6,
+            border: filter === 'hedge' ? `0.5px solid ${MED_COLOR}` : '0.5px solid var(--color-border-tertiary)',
+            background: filter === 'hedge' ? MED_BG : 'transparent',
+            color: filter === 'hedge' ? MED_COLOR : 'var(--color-text-tertiary)',
+            fontSize: 'var(--sz-xs)',
+            fontWeight: filter === 'hedge' ? 600 : 400,
+            cursor: 'pointer',
+          }}
+        >
+          Overconfident Only
         </button>
       </div>
 
@@ -237,7 +260,7 @@ export default function Warnings() {
       }}>
         {displayed.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>
-            {ragOnly ? 'No RAG issues found' : 'No flagged responses yet'}
+            {filter === 'rag' ? 'No RAG issues found' : filter === 'hedge' ? 'No overconfident responses found' : 'No flagged responses yet'}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -250,6 +273,7 @@ export default function Warnings() {
                   <th style={th}>Risk level</th>
                   <th style={{ ...th, textAlign: 'right' }}>Hallucination</th>
                   <th style={{ ...th, textAlign: 'right' }}>Grounding</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Hedge Risk</th>
                   <th style={{ ...th, width: '30%' }}>Reasons</th>
                 </tr>
               </thead>
@@ -276,6 +300,11 @@ export default function Warnings() {
                     </td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       <ScoreCell value={w.grounding_score} higherIsGood />
+                    </td>
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      {w.hedge_risk !== undefined && w.hedge_risk > 0
+                        ? <ScoreCell value={w.hedge_risk} />
+                        : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
                     </td>
                     <td style={{ ...td, maxWidth: 320 }}>
                       <ReasonsCell reasons={w.reasons} />

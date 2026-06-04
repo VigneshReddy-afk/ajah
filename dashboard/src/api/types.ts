@@ -81,6 +81,7 @@ export interface WarningItem {
   reasons: string[]
   timestamp: string
   rag_verdict?: string
+  hedge_risk?: number
 }
 
 export interface WarningsResponse {
