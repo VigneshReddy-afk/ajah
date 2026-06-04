@@ -57,6 +57,7 @@ An open-source, self-hostable LLM safety and observability platform.
 - Multi-agent session tracing — groups calls by X-Session-ID, visual step tree
 - Session reaper — closes idle sessions after 5 minutes, writes to ClickHouse
 - Prometheus /metrics endpoint — 8 metrics live: ajah_requests_total, ajah_cost_usd_total, ajah_latency_ms, ajah_hallucination_risk, ajah_pii_detections_total, ajah_warnings_total, ajah_scorer_latency_ms, ajah_claim_density_risk
+- Linguistic hedge detection — flags overconfident responses on complex high-stakes questions. hedge_risk float in ScoreResult, ajah_hedge_risk Prometheus metric, overconfident_response flag in warnings
 
 ### Python Scorer (FastAPI on port 8001)
 - Quality scoring: hallucination_score, factual_consistency_score, toxicity_score, overall_quality_score
@@ -233,9 +234,9 @@ Currently on: Day 3 complete, Day 4 pending.
 
 ## Immediate Next Tasks (Priority Order)
 
-1. Linguistic hedge detection — detects mismatch between question complexity and response certainty
+1. Fix scorer latency — averaging 9500ms, timing out on long responses. Investigate sentence-transformers inference speed.
 2. Slack webhook for cost spikes
-3. Get first paying customer — pricing live at $199/month, contact vigneshreddy181200@gmail.com
+3. Get first paying customer — $199/month, vigneshreddy181200@gmail.com
 
 ---
 
