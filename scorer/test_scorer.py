@@ -325,3 +325,78 @@ class TestHealthEndpoint:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["models_loaded"] is True
+
+
+# ---------------------------------------------------------------------------
+# Linguistic hedge detection
+# ---------------------------------------------------------------------------
+
+def test_hedge_high_complexity_high_certainty():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-hedge-1",
+        prompt=(
+            "If I take ibuprofen and aspirin together "
+            "will it definitely be dangerous? "
+            "Should I be worried about the dosage?"
+        ),
+        response=(
+            "Yes, definitely. Taking ibuprofen and "
+            "aspirin together is absolutely dangerous "
+            "and will certainly cause serious harm. "
+            "This is proven and there is no doubt "
+            "about the risk involved."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None
+    )
+    result = scorer.score(req)
+    assert result.hedge_risk > 0.5, (
+        f"Expected > 0.5, got {result.hedge_risk}"
+    )
+    assert "overconfident_response" in result.flags, (
+        f"Expected flag, got flags: {result.flags}"
+    )
+
+def test_hedge_low_complexity_high_certainty():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-hedge-2",
+        prompt="What is 2 + 2?",
+        response=(
+            "The answer is definitely 4. "
+            "This is absolutely certain."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None
+    )
+    result = scorer.score(req)
+    assert result.hedge_risk < 0.5, (
+        f"Expected < 0.5, got {result.hedge_risk}"
+    )
+
+def test_hedge_high_complexity_with_hedging():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-hedge-3",
+        prompt=(
+            "If I invest in this stock should I "
+            "be worried about financial risk? "
+            "Could this be dangerous for my portfolio?"
+        ),
+        response=(
+            "It depends on many factors. Generally "
+            "speaking, this may carry some risk. "
+            "I would recommend consulting a financial "
+            "advisor as outcomes could vary significantly."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None
+    )
+    result = scorer.score(req)
+    assert result.hedge_risk < 0.5, (
+        f"Expected < 0.5, got {result.hedge_risk}"
+    )

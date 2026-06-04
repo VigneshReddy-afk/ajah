@@ -19,6 +19,7 @@ class ScoreResult(BaseModel):
     flags: list[str]
     processing_ms: int
     claim_density_risk: float = 0.0
+    hedge_risk: float = 0.0
     # RAG verification fields — populated when source_context is provided
     rag_verdict: str = "not_applicable"
     rag_grounding_score: float = 0.0

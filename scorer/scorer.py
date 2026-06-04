@@ -129,6 +129,17 @@ class QualityScorer:
             if "high_claim_density" not in result.flags:
                 result.flags.append("high_claim_density")
 
+        # Linguistic hedge detection
+        hedge = self._hedge_detection_score(
+            request.prompt,
+            request.response,
+        )
+        result.hedge_risk = hedge
+
+        if hedge > 0.5:
+            if "overconfident_response" not in result.flags:
+                result.flags.append("overconfident_response")
+
         return result
 
     def _hallucination(self, response: str, similarity: float, is_refusal: bool) -> float:
@@ -185,6 +196,106 @@ class QualityScorer:
         raw_score = (claim_count / response_word_count) * 10
         claim_density_risk = min(raw_score * context_multiplier, 1.0)
         return round(claim_density_risk, 4)
+
+    def _hedge_detection_score(
+        self,
+        prompt: str,
+        response: str,
+    ) -> float:
+        import re
+
+        # STEP 1 — Question complexity score
+        prompt_words = prompt.split()
+        prompt_lower = prompt.lower()
+
+        complexity_count = 0
+
+        # Conditional and uncertainty markers in question
+        complexity_terms = [
+            'if', 'whether', 'could', 'would', 'might',
+            'should', 'unsure', 'wondering', 'think',
+            'suppose', 'assume', 'hypothetically',
+            'potentially', 'possibly', 'maybe'
+        ]
+        for term in complexity_terms:
+            if re.search(r'\b' + term + r'\b', prompt_lower):
+                complexity_count += 1
+
+        # Domain markers — high stakes domains
+        domain_terms = [
+            'medical', 'medicine', 'diagnosis', 'symptoms',
+            'treatment', 'drug', 'medication', 'dosage',
+            'legal', 'lawsuit', 'liability', 'contract',
+            'financial', 'investment', 'stock', 'trading',
+            'safety', 'risk', 'dangerous', 'hazardous',
+            'scientific', 'research', 'study', 'evidence'
+        ]
+        for term in domain_terms:
+            if re.search(r'\b' + term + r'\b', prompt_lower):
+                complexity_count += 1
+
+        # Multi-part question — multiple question marks
+        # or complex conjunctions
+        question_marks = prompt.count('?')
+        if question_marks > 1:
+            complexity_count += question_marks - 1
+
+        # STEP 2 — Response certainty score
+        response_words = response.split()
+        response_lower = response.lower()
+
+        certainty_count = 0
+
+        # Absolute certainty terms
+        absolute_terms = [
+            'definitely', 'certainly', 'absolutely',
+            'guaranteed', 'undoubtedly', 'without question',
+            '100%', 'always', 'never', 'proven',
+            'unquestionably', 'indisputably', 'clearly',
+            'obviously', 'of course', 'there is no doubt',
+            'it is certain', 'it is a fact'
+        ]
+        for term in absolute_terms:
+            if term in response_lower:
+                certainty_count += 1
+
+        # Absence of hedging language reduces risk
+        # Check if response contains appropriate hedges
+        hedge_terms = [
+            'may', 'might', 'could', 'possibly', 'perhaps',
+            'generally', 'typically', 'in most cases',
+            'it depends', 'usually', 'often', 'sometimes',
+            'consult', 'recommend', 'suggest', 'consider',
+            'in general', 'as a rule', 'tend to'
+        ]
+        hedge_present = any(
+            term in response_lower for term in hedge_terms
+        )
+
+        # If hedging language is present, reduce certainty
+        if hedge_present:
+            certainty_count = max(0, certainty_count - 1)
+
+        # STEP 3 — Formula
+        # Normalize both scores by word count
+        prompt_word_count = max(len(prompt_words), 1)
+        response_word_count = max(len(response_words), 1)
+
+        complexity_score = min(
+            (complexity_count / prompt_word_count) * 10, 1.0
+        )
+        certainty_score = min(
+            (certainty_count / response_word_count) * 10, 1.0
+        )
+
+        # hedge_risk = certainty * complexity
+        # High certainty on complex question = high risk
+        hedge_risk = round(
+            min(certainty_score * complexity_score * 10, 1.0),
+            4
+        )
+
+        return hedge_risk
 
     def _toxicity(self, response: str) -> float:
         # Truncate to stay within model input limits.
