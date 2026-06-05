@@ -360,6 +360,17 @@ func run() error {
 									zap.Float64("threshold", threshold),
 									zap.Float64("actual", featureCost),
 								)
+								if webhookURL := dbStore.WebhookURLFor(event.FeatureName); webhookURL != "" {
+									go fireCostWebhook(
+										webhookURL,
+										event.FeatureName,
+										featureCost,
+										threshold,
+										event.Model,
+										webhookClient,
+										logger,
+									)
+								}
 							}
 						}
 					}
@@ -697,6 +708,47 @@ func extractSegment(key, prefix, suffix string) string {
 		return s[:idx]
 	}
 	return s
+}
+
+// fireCostWebhook POSTs a Slack-formatted cost spike alert to webhookURL.
+// Fire-and-forget — always called in a goroutine.
+func fireCostWebhook(
+	webhookURL string,
+	featureName string,
+	costUSD float64,
+	threshold float64,
+	model string,
+	client *http.Client,
+	logger *zap.Logger,
+) {
+	payload := map[string]interface{}{
+		"text": fmt.Sprintf(
+			"🚨 *Cost Alert — Ajah*\n*Feature:* %s\n*Cost today:* $%.4f\n*Threshold:* $%.2f\n*Model:* %s",
+			featureName,
+			costUSD,
+			threshold,
+			model,
+		),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		logger.Error("cost webhook marshal error", zap.Error(err))
+		return
+	}
+	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		logger.Error("cost webhook post error", zap.Error(err))
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		logger.Error("cost webhook non-2xx", zap.Int("status", resp.StatusCode))
+		return
+	}
+	logger.Info("cost webhook fired",
+		zap.String("feature", featureName),
+		zap.Float64("cost_usd", costUSD),
+	)
 }
 
 // fireWebhook POSTs the RiskFlag JSON to webhookURL. It retries once on any
