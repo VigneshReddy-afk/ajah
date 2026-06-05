@@ -754,7 +754,17 @@ func fireCostWebhook(
 // fireWebhook POSTs the RiskFlag JSON to webhookURL. It retries once on any
 // non-2xx response or network error. Always fire-and-forget — never blocks.
 func fireWebhook(webhookURL string, flag flagging.RiskFlag, client *http.Client, logger *zap.Logger) {
-	body, err := json.Marshal(flag)
+	slackMsg := map[string]interface{}{
+		"text": fmt.Sprintf(
+			"⚠️ *Risk Alert — Ajah*\n*Feature:* %s\n*Risk Level:* %s\n*Hallucination Risk:* %.2f\n*Grounding Score:* %.2f\n*Reasons:* %s",
+			flag.RequestID,
+			flag.RiskLevel,
+			flag.HallucinationRisk,
+			flag.GroundingScore,
+			strings.Join(flag.Reasons, ", "),
+		),
+	}
+	body, err := json.Marshal(slackMsg)
 	if err != nil {
 		logger.Warn("webhook: marshal failed", zap.Error(err))
 		return

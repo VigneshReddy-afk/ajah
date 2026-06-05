@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,18 +102,19 @@ func TestFireWebhook_PostsToWebhookURL(t *testing.T) {
 		t.Fatal("webhook server received no request")
 	}
 
-	var got flagging.RiskFlag
+	var got map[string]interface{}
 	if err := json.Unmarshal(received, &got); err != nil {
 		t.Fatalf("decode webhook payload: %v", err)
 	}
-	if got.RequestID != "req-webhook-001" {
-		t.Errorf("RequestID = %q, want req-webhook-001", got.RequestID)
+	text, ok := got["text"].(string)
+	if !ok || text == "" {
+		t.Fatalf("expected non-empty text field, got %v", got["text"])
 	}
-	if got.RiskLevel != "high" {
-		t.Errorf("RiskLevel = %q, want high", got.RiskLevel)
+	if !strings.Contains(text, "req-webhook-001") {
+		t.Errorf("text missing RequestID, got: %s", text)
 	}
-	if !got.ShouldWarn {
-		t.Error("ShouldWarn = false, want true")
+	if !strings.Contains(text, "high") {
+		t.Errorf("text missing RiskLevel, got: %s", text)
 	}
 }
 
