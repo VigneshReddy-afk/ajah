@@ -144,7 +144,7 @@ function isRAGIssue(w: WarningItem): boolean {
 }
 
 export default function Warnings() {
-  const [filter, setFilter] = useState<'all' | 'rag' | 'hedge'>('all')
+  const [filter, setFilter] = useState<'all' | 'rag' | 'hedge' | 'drift'>('all')
 
   const { data, isLoading, error } = useQuery<WarningsResponse>({
     queryKey: ['warnings'],
@@ -180,6 +180,11 @@ export default function Warnings() {
         w.reasons?.some(r =>
           r.toLowerCase().includes('overconfident')
         )
+      )
+    : filter === 'drift'
+    ? warnings.filter(w =>
+        w.drift_verdict === 'drift_detected' ||
+        w.drift_verdict === 'possible_drift'
       )
     : warnings
 
@@ -249,6 +254,21 @@ export default function Warnings() {
         >
           Overconfident Only
         </button>
+        <button
+          onClick={() => setFilter('drift')}
+          style={{
+            padding: '5px 14px',
+            borderRadius: 6,
+            border: filter === 'drift' ? `0.5px solid #ef4444` : '0.5px solid var(--color-border-tertiary)',
+            background: filter === 'drift' ? 'rgba(239,68,68,0.12)' : 'transparent',
+            color: filter === 'drift' ? '#ef4444' : 'var(--color-text-tertiary)',
+            fontSize: 'var(--sz-xs)',
+            fontWeight: filter === 'drift' ? 600 : 400,
+            cursor: 'pointer',
+          }}
+        >
+          Drift Only
+        </button>
       </div>
 
       {/* ── Warnings table ── */}
@@ -260,7 +280,7 @@ export default function Warnings() {
       }}>
         {displayed.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>
-            {filter === 'rag' ? 'No RAG issues found' : filter === 'hedge' ? 'No overconfident responses found' : 'No flagged responses yet'}
+            {filter === 'rag' ? 'No RAG issues found' : filter === 'hedge' ? 'No overconfident responses found' : filter === 'drift' ? 'No drift detected yet' : 'No flagged responses yet'}
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -274,6 +294,7 @@ export default function Warnings() {
                   <th style={{ ...th, textAlign: 'right' }}>Hallucination</th>
                   <th style={{ ...th, textAlign: 'right' }}>Grounding</th>
                   <th style={{ ...th, textAlign: 'right' }}>Hedge Risk</th>
+                  <th style={th}>Drift</th>
                   <th style={{ ...th, width: '30%' }}>Reasons</th>
                 </tr>
               </thead>
@@ -304,6 +325,25 @@ export default function Warnings() {
                     <td style={{ ...td, textAlign: 'right' }}>
                       {w.hedge_risk !== undefined && w.hedge_risk > 0
                         ? <ScoreCell value={w.hedge_risk} />
+                        : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
+                    </td>
+                    <td style={td}>
+                      {w.drift_verdict && w.drift_verdict !== 'not_applicable'
+                        ? <span style={{
+                            color: w.drift_risk && w.drift_risk > 0.5
+                              ? '#ef4444'
+                              : w.drift_risk && w.drift_risk > 0.3
+                              ? '#f59e0b'
+                              : '#6b7280',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                          }}>
+                            {w.drift_verdict === 'drift_detected'
+                              ? 'DRIFT'
+                              : w.drift_verdict === 'possible_drift'
+                              ? 'POSSIBLE'
+                              : 'STABLE'}
+                          </span>
                         : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
                     </td>
                     <td style={{ ...td, maxWidth: 320 }}>

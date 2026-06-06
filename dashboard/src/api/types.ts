@@ -82,6 +82,8 @@ export interface WarningItem {
   timestamp: string
   rag_verdict?: string
   hedge_risk?: number
+  drift_risk?: number
+  drift_verdict?: string
 }
 
 export interface WarningsResponse {
