@@ -15,7 +15,7 @@ func newTestFlagger(t *testing.T) *Flagger {
 
 func TestEvaluate_HighRiskOnLowGrounding(t *testing.T) {
 	f := newTestFlagger(t)
-	flag := f.Evaluate(context.Background(), "req-1", "sess-1", 0.2, 0.25, 0.0, 0.0, nil, "")
+	flag := f.Evaluate(context.Background(), "req-1", "sess-1", 0.2, 0.25, 0.0, 0.0, 0.0, nil, "")
 
 	if flag.RiskLevel != "high" {
 		t.Errorf("expected RiskLevel=high, got %q", flag.RiskLevel)
@@ -39,7 +39,7 @@ func TestEvaluate_HighRiskOnLowGrounding(t *testing.T) {
 
 func TestEvaluate_HighRiskOnHighHallucination(t *testing.T) {
 	f := newTestFlagger(t)
-	flag := f.Evaluate(context.Background(), "req-2", "sess-2", 0.82, 0.65, 0.0, 0.0, nil, "")
+	flag := f.Evaluate(context.Background(), "req-2", "sess-2", 0.82, 0.65, 0.0, 0.0, 0.0, nil, "")
 
 	if flag.RiskLevel != "high" {
 		t.Errorf("expected RiskLevel=high, got %q", flag.RiskLevel)
@@ -57,7 +57,7 @@ func TestEvaluate_HighRiskOnHighHallucination(t *testing.T) {
 
 func TestEvaluate_MediumRisk(t *testing.T) {
 	f := newTestFlagger(t)
-	flag := f.Evaluate(context.Background(), "req-3", "sess-3", 0.55, 0.45, 0.0, 0.0, nil, "")
+	flag := f.Evaluate(context.Background(), "req-3", "sess-3", 0.55, 0.45, 0.0, 0.0, 0.0, nil, "")
 
 	if flag.RiskLevel != "medium" {
 		t.Errorf("expected RiskLevel=medium, got %q", flag.RiskLevel)
@@ -75,7 +75,7 @@ func TestEvaluate_MediumRisk(t *testing.T) {
 
 func TestEvaluate_LowRisk(t *testing.T) {
 	f := newTestFlagger(t)
-	flag := f.Evaluate(context.Background(), "req-4", "sess-4", 0.1, 0.90, 0.0, 0.0, nil, "")
+	flag := f.Evaluate(context.Background(), "req-4", "sess-4", 0.1, 0.90, 0.0, 0.0, 0.0, nil, "")
 
 	if flag.RiskLevel != "low" {
 		t.Errorf("expected RiskLevel=low, got %q", flag.RiskLevel)
@@ -94,7 +94,7 @@ func TestEvaluate_LowRisk(t *testing.T) {
 func TestEvaluate_ClaimDensityFlagAddsReason(t *testing.T) {
 	f := newTestFlagger(t)
 	flags := []string{"high_claim_density"}
-	flag := f.Evaluate(context.Background(), "req-5", "sess-5", 0.55, 0.45, 0.75, 0.0, flags, "")
+	flag := f.Evaluate(context.Background(), "req-5", "sess-5", 0.55, 0.45, 0.75, 0.0, 0.0, flags, "")
 
 	if !containsSubstr(flag.Reasons, "High claim density detected") {
 		t.Errorf("expected claim density reason, got %v", flag.Reasons)
@@ -104,7 +104,7 @@ func TestEvaluate_ClaimDensityFlagAddsReason(t *testing.T) {
 func TestEvaluate_ToxicityFlagAddsReason(t *testing.T) {
 	f := newTestFlagger(t)
 	flags := []string{"toxicity_detected"}
-	flag := f.Evaluate(context.Background(), "req-6", "sess-6", 0.55, 0.45, 0.0, 0.0, flags, "")
+	flag := f.Evaluate(context.Background(), "req-6", "sess-6", 0.55, 0.45, 0.0, 0.0, 0.0, flags, "")
 
 	if !containsSubstr(flag.Reasons, "Toxic or harmful content") {
 		t.Errorf("expected toxicity reason, got %v", flag.Reasons)
@@ -113,7 +113,7 @@ func TestEvaluate_ToxicityFlagAddsReason(t *testing.T) {
 
 func TestEvaluate_RequestIDPreserved(t *testing.T) {
 	f := newTestFlagger(t)
-	flag := f.Evaluate(context.Background(), "req-7", "sess-7", 0.1, 0.9, 0.0, 0.0, nil, "")
+	flag := f.Evaluate(context.Background(), "req-7", "sess-7", 0.1, 0.9, 0.0, 0.0, 0.0, nil, "")
 	if flag.RequestID != "req-7" {
 		t.Errorf("expected RequestID=req-7, got %q", flag.RequestID)
 	}

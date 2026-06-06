@@ -597,6 +597,7 @@ func TestHallucinationFlagging(t *testing.T) {
 			FactualConsistencyScore float64  `json:"factual_consistency_score"`
 			ClaimDensityRisk        float64  `json:"claim_density_risk"`
 			HedgeRisk               float64  `json:"hedge_risk"`
+			DriftRisk               float64  `json:"drift_risk"`
 			Flags                   []string `json:"flags"`
 			RAGVerdict              string   `json:"rag_verdict"`
 		}
@@ -621,7 +622,7 @@ func TestHallucinationFlagging(t *testing.T) {
 		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
 		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID,
 			scorerOut.HallucinationScore, scorerOut.FactualConsistencyScore,
-			scorerOut.ClaimDensityRisk, scorerOut.HedgeRisk, scorerOut.Flags, scorerOut.RAGVerdict)
+			scorerOut.ClaimDensityRisk, scorerOut.HedgeRisk, scorerOut.DriftRisk, scorerOut.Flags, scorerOut.RAGVerdict)
 		flagCancel()
 
 		// Mirror exactly what the real processFn does.
@@ -829,6 +830,7 @@ func TestRAGVerification(t *testing.T) {
 		FactualConsistencyScore float64  `json:"factual_consistency_score"`
 		ClaimDensityRisk        float64  `json:"claim_density_risk"`
 		HedgeRisk               float64  `json:"hedge_risk"`
+		DriftRisk               float64  `json:"drift_risk"`
 		Flags                   []string `json:"flags"`
 		RAGVerdict              string   `json:"rag_verdict"`
 		RAGGroundingScore       float64  `json:"rag_grounding_score"`
@@ -863,7 +865,7 @@ func TestRAGVerification(t *testing.T) {
 		flagCtx, flagCancel := context.WithTimeout(ctx, 10*time.Second)
 		riskFlag := flgr.Evaluate(flagCtx, event.RequestID, event.SessionID,
 			outcome.HallucinationScore, outcome.FactualConsistencyScore,
-			outcome.ClaimDensityRisk, outcome.HedgeRisk, outcome.Flags, outcome.RAGVerdict)
+			outcome.ClaimDensityRisk, outcome.HedgeRisk, outcome.DriftRisk, outcome.Flags, outcome.RAGVerdict)
 		flagCancel()
 
 		if riskFlag.ShouldWarn {

@@ -155,7 +155,7 @@ func run() error {
 		if event.StatusCode == http.StatusOK {
 			scoreCtx, scoreCancel := context.WithTimeout(ctx, 10*time.Second)
 			scorerStart := time.Now()
-			scorerOut = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, logger)
+			scorerOut = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, acc, logger)
 			metrics.ScorerLatencyMs.Observe(float64(time.Since(scorerStart).Milliseconds()))
 			qualityScore = scorerOut.OverallQualityScore
 			scoreCancel()
@@ -175,6 +175,7 @@ func run() error {
 					scorerOut.FactualConsistencyScore,
 					scorerOut.ClaimDensityRisk,
 					scorerOut.HedgeRisk,
+					scorerOut.DriftRisk,
 					scorerOut.Flags,
 					scorerOut.RAGVerdict,
 				)
@@ -327,6 +328,9 @@ func run() error {
 		metrics.HedgeRisk.WithLabelValues(
 			event.FeatureName,
 		).Set(scorerOut.HedgeRisk)
+		metrics.DriftRisk.WithLabelValues(
+			event.FeatureName,
+		).Set(scorerOut.DriftRisk)
 
 		if writeErr != nil {
 			if firstErr == nil {
@@ -620,12 +624,13 @@ func scanCostKeys(
 }
 
 type scorerPayload struct {
-	RequestID     string `json:"request_id"`
-	Prompt        string `json:"prompt"`
-	Response      string `json:"response"`
-	Model         string `json:"model"`
-	FeatureName   string `json:"feature_name"`
-	SourceContext string `json:"source_context,omitempty"`
+	RequestID      string                   `json:"request_id"`
+	Prompt         string                   `json:"prompt"`
+	Response       string                   `json:"response"`
+	Model          string                   `json:"model"`
+	FeatureName    string                   `json:"feature_name"`
+	SourceContext  string                   `json:"source_context,omitempty"`
+	SessionHistory []map[string]interface{} `json:"session_history,omitempty"`
 }
 
 type scorerOutcome struct {
@@ -635,6 +640,8 @@ type scorerOutcome struct {
 	ToxicityScore           float64  `json:"toxicity_score"`
 	ClaimDensityRisk        float64  `json:"claim_density_risk"`
 	HedgeRisk               float64  `json:"hedge_risk"`
+	DriftRisk               float64  `json:"drift_risk"`
+	DriftVerdict            string   `json:"drift_verdict"`
 	Flags                   []string `json:"flags"`
 	RAGVerdict              string   `json:"rag_verdict"`
 	RAGGroundingScore       float64  `json:"rag_grounding_score"`
@@ -647,17 +654,33 @@ type scorerOutcome struct {
 // callScorer posts to the quality scorer service and returns the full scorerOutcome.
 // Any failure (network, decode, etc.) logs a warning and returns a zero-value
 // outcome so the main pipeline is never blocked by scorer availability.
-func callScorer(ctx context.Context, client *http.Client, baseURL string, event events.RequestEvent, logger *zap.Logger) scorerOutcome {
+func callScorer(ctx context.Context, client *http.Client, baseURL string, event events.RequestEvent, acc *sessions.Accumulator, logger *zap.Logger) scorerOutcome {
 	scorerURL := baseURL + "/score"
 	logger.Debug("scorer: calling", zap.String("url", scorerURL), zap.String("request_id", event.RequestID))
 
+	var sessionTurns []map[string]interface{}
+	if event.SessionID != "" {
+		turns, err := acc.GetTurns(ctx, event.SessionID)
+		if err == nil {
+			for i, turn := range turns {
+				if turn.ResponseText != "" {
+					sessionTurns = append(sessionTurns, map[string]interface{}{
+						"turn_index":    i,
+						"response_text": turn.ResponseText,
+					})
+				}
+			}
+		}
+	}
+
 	body, err := json.Marshal(scorerPayload{
-		RequestID:     event.RequestID,
-		Prompt:        event.Prompt,
-		Response:      event.Response,
-		Model:         event.Model,
-		FeatureName:   event.FeatureName,
-		SourceContext: event.SourceContext,
+		RequestID:      event.RequestID,
+		Prompt:         event.Prompt,
+		Response:       event.Response,
+		Model:          event.Model,
+		FeatureName:    event.FeatureName,
+		SourceContext:  event.SourceContext,
+		SessionHistory: sessionTurns,
 	})
 	if err != nil {
 		logger.Warn("scorer: marshal failed", zap.Error(err))

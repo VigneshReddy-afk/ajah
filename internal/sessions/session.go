@@ -194,6 +194,25 @@ func (a *Accumulator) CloseSession(ctx context.Context, sessionID string) (*Sess
 	return summary, nil
 }
 
+// GetTurns returns all TraceRecords buffered in Redis for a session,
+// in append order. Returns an empty slice if the session has no turns.
+func (a *Accumulator) GetTurns(ctx context.Context, sessionID string) ([]storage.TraceRecord, error) {
+	key := "session:" + sessionID + ":traces"
+	data, err := a.rdb.LRange(ctx, key, 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+	var turns []storage.TraceRecord
+	for _, d := range data {
+		var tr storage.TraceRecord
+		if err := json.Unmarshal([]byte(d), &tr); err != nil {
+			continue
+		}
+		turns = append(turns, tr)
+	}
+	return turns, nil
+}
+
 // StartReaper launches a background goroutine that scans Redis every
 // reaperInterval and closes sessions whose last_seen exceeds sessionTimeout.
 // It stops cleanly when ctx is cancelled.

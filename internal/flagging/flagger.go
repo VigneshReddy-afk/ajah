@@ -40,6 +40,7 @@ func (f *Flagger) Evaluate(
 	factualConsistencyScore float64,
 	claimDensityRisk        float64,
 	hedgeRisk               float64,
+	driftRisk               float64,
 	flags                   []string,
 	ragVerdict              string,
 ) RiskFlag {
@@ -53,7 +54,7 @@ func (f *Flagger) Evaluate(
 	riskLevel := f.computeRiskLevel(hallucinationScore, factualConsistencyScore)
 	base.RiskLevel = riskLevel
 	base.ShouldWarn = riskLevel == "high" || riskLevel == "medium"
-	base.Reasons = f.buildReasons(hallucinationScore, factualConsistencyScore, claimDensityRisk, hedgeRisk, riskLevel, flags)
+	base.Reasons = f.buildReasons(hallucinationScore, factualConsistencyScore, claimDensityRisk, hedgeRisk, driftRisk, riskLevel, flags)
 	return f.applyRAGVerdict(base, ragVerdict)
 }
 
@@ -83,7 +84,7 @@ func (f *Flagger) computeRiskLevel(hallucination, grounding float64) string {
 	return "low"
 }
 
-func (f *Flagger) buildReasons(hallucination, grounding, claimDensityRisk, hedgeRisk float64, riskLevel string, flags []string) []string {
+func (f *Flagger) buildReasons(hallucination, grounding, claimDensityRisk, hedgeRisk, driftRisk float64, riskLevel string, flags []string) []string {
 	var reasons []string
 	if grounding <= 0.5 {
 		reasons = append(reasons, fmt.Sprintf("Response shows weak grounding in the prompt (score: %.2f)", grounding))
@@ -105,6 +106,13 @@ func (f *Flagger) buildReasons(hallucination, grounding, claimDensityRisk, hedge
 			fmt.Sprintf(
 				"Overconfident response detected on complex question (hedge risk: %.2f)",
 				hedgeRisk,
+			))
+	}
+	if driftRisk > 0.5 {
+		reasons = append(reasons,
+			fmt.Sprintf(
+				"Narrative drift detected — model position reversed across session turns (drift risk: %.2f)",
+				driftRisk,
 			))
 	}
 	if riskLevel == "low" {

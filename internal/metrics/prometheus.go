@@ -75,6 +75,14 @@ var (
 		},
 		[]string{"feature"},
 	)
+
+	DriftRisk = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ajah_drift_risk",
+			Help: "Narrative drift risk score per feature",
+		},
+		[]string{"feature"},
+	)
 )
 
 func Register() {
@@ -88,5 +96,6 @@ func Register() {
 		ScorerLatencyMs,
 		ClaimDensityRisk,
 		HedgeRisk,
+		DriftRisk,
 	)
 }
