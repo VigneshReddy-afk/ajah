@@ -58,6 +58,8 @@ An open-source, self-hostable LLM safety and observability platform.
 - Session reaper — closes idle sessions after 5 minutes, writes to ClickHouse
 - Prometheus /metrics endpoint — 8 metrics live: ajah_requests_total, ajah_cost_usd_total, ajah_latency_ms, ajah_hallucination_risk, ajah_pii_detections_total, ajah_warnings_total, ajah_scorer_latency_ms, ajah_claim_density_risk
 - Linguistic hedge detection — flags overconfident responses on complex high-stakes questions. hedge_risk float in ScoreResult, ajah_hedge_risk Prometheus metric, overconfident_response flag in warnings
+- Narrative drift detection — detects when a model reverses position across session turns. SessionTurn model, session_history in ScoreRequest, drift_risk float and drift_verdict string in ScoreResult. Flags: narrative_drift. ajah_drift_risk Prometheus metric live. Dashboard: Drift column and Drift Only filter in Warnings page.
+- Response text storage — up to 2000 chars of response text stored per session turn in Redis. Foundation for drift detection and future conversation-level analysis.
 
 ### Python Scorer (FastAPI on port 8001)
 - Quality scoring: hallucination_score, factual_consistency_score, toxicity_score, overall_quality_score
@@ -230,13 +232,28 @@ Currently on: Day 3 complete, Day 4 pending.
 - feat: add Prometheus /metrics endpoint to gateway
 - docs: social media posting handoff for dedicated posting chat
 
+## Commits Made (June 5, 2026)
+
+- feat: Slack webhook for cost spike alerts
+- feat: Slack-format risk webhook fix
+- feat: add Hedge Risk column and Overconfident Only filter to Warnings page
+
+## Commits Made (June 6, 2026)
+
+- feat: add pricing section, Discord link, new features to landing page
+- feat(sessions): store response text per turn for narrative drift detection
+- feat(scorer): narrative drift detection
+- feat(gateway): wire session history to scorer for narrative drift detection
+- feat(dashboard): add Drift Risk column and Drift Only filter to Warnings page
+
 ---
 
 ## Immediate Next Tasks (Priority Order)
 
 1. Fix scorer latency — averaging 9500ms, timing out on long responses. Investigate sentence-transformers inference speed.
-2. Slack webhook for cost spikes
+2. Slack webhook for risk alerts now Slack-formatted — both cost and risk alerts working with Slack
 3. Get first paying customer — $199/month, vigneshreddy181200@gmail.com
+4. Anthropic startup program — applied, awaiting response
 
 ---
 
@@ -250,9 +267,9 @@ Currently on: Day 3 complete, Day 4 pending.
 ## Unsolved Problems (Future Roadmap)
 
 1. **Domain-specific hallucination detection** — Ajah cannot detect hallucinations in specialized domains (Vedic astrology, medicine, law) where ground truth is not computable.
-2. **Confidence calibration** — Models don't know what they don't know. Confident wrong answers look identical to confident right answers in embeddings. Target signals: linguistic hedge detection, question complexity vs response certainty gap.
-3. **Narrative drift detection** — Conversation-level analysis of when a model reverses a position under social pressure.
-4. **Position shift detection** — Compare model claims in turn 3 vs turn 12. Significant reversal = flag.
+2. **Confidence calibration** — Models don't know what they don't know. Confident wrong answers look identical to confident right answers in embeddings. Linguistic hedge detection is live; full calibration is still unsolved.
+3. **Scorer latency** — CPU-only inference averaging ~9500ms. Sentence-transformers on CPU is the bottleneck. GPU inference or a lighter model needed for production.
+4. **Position shift detection at scale** — Drift detection is live for single sessions. Cross-session drift (same user across multiple sessions over days) is not yet implemented.
 
 ---
 
