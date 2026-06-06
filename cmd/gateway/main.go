@@ -272,6 +272,12 @@ func run() error {
 			LatencyMs:             event.LatencyMs,
 			StatusCode:            event.StatusCode,
 			MaskedPrompt:          maskResult.Masked,
+			ResponseText: func() string {
+				if len(event.Response) > 2000 {
+					return event.Response[:2000]
+				}
+				return event.Response
+			}(),
 			WasPIIMasked:          maskResult.WasMasked,
 			QualityScore:          qualityScore,
 			Timestamp:             event.Timestamp,

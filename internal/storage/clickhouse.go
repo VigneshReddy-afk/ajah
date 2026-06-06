@@ -30,6 +30,7 @@ type TraceRecord struct {
 	LatencyMs         int64
 	StatusCode        int
 	MaskedPrompt      string
+	ResponseText      string
 	WasPIIMasked      bool
 	QualityScore      float64
 	Timestamp         time.Time
