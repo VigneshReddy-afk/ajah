@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
 
-from models import ScoreRequest, ScoreResult
+from models import ScoreRequest, ScoreResult, SessionTurn
 from scorer import QualityScorer
 
 # ---------------------------------------------------------------------------
@@ -399,4 +399,97 @@ def test_hedge_high_complexity_with_hedging():
     result = scorer.score(req)
     assert result.hedge_risk < 0.5, (
         f"Expected < 0.5, got {result.hedge_risk}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Narrative drift detection
+# ---------------------------------------------------------------------------
+
+def test_drift_detected_position_reversal():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-drift-1",
+        prompt="Is Python better than Java?",
+        response=(
+            "Actually, Java is superior to Python "
+            "in every way. Python is never a good "
+            "choice for enterprise applications. "
+            "Java is definitely better."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None,
+        session_history=[
+            SessionTurn(
+                turn_index=0,
+                response_text=(
+                    "Python is better than Java "
+                    "for most modern applications. "
+                    "Python is faster to develop "
+                    "and has a better ecosystem."
+                ),
+            ),
+            SessionTurn(
+                turn_index=1,
+                response_text=(
+                    "I agree Python is superior "
+                    "for data science and web "
+                    "development use cases."
+                ),
+            ),
+        ],
+    )
+    result = scorer.score(req)
+    assert result.drift_verdict in [
+        "drift_detected", "possible_drift"], (
+        f"Expected drift, got: {result.drift_verdict}"
+    )
+
+def test_no_drift_consistent_position():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-drift-2",
+        prompt="Is Python better than Java?",
+        response=(
+            "Python continues to be the better "
+            "choice for data science and machine "
+            "learning applications."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None,
+        session_history=[
+            SessionTurn(
+                turn_index=0,
+                response_text=(
+                    "Python is better than Java "
+                    "for most modern applications."
+                ),
+            ),
+        ],
+    )
+    result = scorer.score(req)
+    assert result.drift_verdict in [
+        "stable", "not_applicable"], (
+        f"Expected stable, got: {result.drift_verdict}"
+    )
+
+def test_drift_not_applicable_no_history():
+    scorer = QualityScorer()
+    req = ScoreRequest(
+        request_id="test-drift-3",
+        prompt="What is Python?",
+        response=(
+            "Python is a programming language."
+        ),
+        model="test",
+        feature_name="test",
+        source_context=None,
+        session_history=[],
+    )
+    result = scorer.score(req)
+    assert result.drift_verdict == "not_applicable", (
+        f"Expected not_applicable, "
+        f"got: {result.drift_verdict}"
     )

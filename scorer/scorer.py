@@ -140,6 +140,19 @@ class QualityScorer:
             if "overconfident_response" not in result.flags:
                 result.flags.append("overconfident_response")
 
+        # Narrative drift detection
+        if request.session_history:
+            drift_score, drift_verdict = self._narrative_drift_score(
+                request.response,
+                request.session_history,
+            )
+            result.drift_risk = drift_score
+            result.drift_verdict = drift_verdict
+
+            if drift_score > 0.5:
+                if "narrative_drift" not in result.flags:
+                    result.flags.append("narrative_drift")
+
         return result
 
     def _hallucination(self, response: str, similarity: float, is_refusal: bool) -> float:
@@ -296,6 +309,106 @@ class QualityScorer:
         )
 
         return hedge_risk
+
+    def _extract_claims(self, text: str) -> list[str]:
+        import re
+        claims = []
+        sentences = re.split(r'[.!?]+', text)
+
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) < 10:
+                continue
+
+            if sentence.endswith('?'):
+                continue
+
+            words = sentence.split()
+            has_proper_noun = any(
+                len(w) >= 4 and w[0].isupper() and i > 0
+                for i, w in enumerate(words)
+            )
+            has_number = bool(re.search(r'\b\d+\b', sentence))
+            has_absolute = any(
+                term in sentence.lower()
+                for term in [
+                    'always', 'never', 'definitely',
+                    'certainly', 'best', 'worst',
+                    'superior', 'inferior', 'faster',
+                    'slower', 'better', 'worse',
+                ]
+            )
+
+            if has_proper_noun or has_number or has_absolute:
+                claims.append(sentence[:200])
+
+        return claims[:10]
+
+    def _narrative_drift_score(
+        self,
+        current_response: str,
+        session_history: list,
+    ) -> tuple[float, str]:
+        if not session_history or len(session_history) < 2:
+            return 0.0, "not_applicable"
+
+        earlier_turns = [
+            t for t in session_history
+            if t.turn_index < len(session_history) - 1
+        ]
+        if not earlier_turns:
+            return 0.0, "not_applicable"
+
+        current_claims = self._extract_claims(current_response)
+        if not current_claims:
+            return 0.0, "not_applicable"
+
+        max_contradiction_score = 0.0
+
+        for turn in earlier_turns:
+            earlier_claims = self._extract_claims(turn.response_text)
+            if not earlier_claims:
+                continue
+
+            try:
+                current_embeddings = self.embedder.encode(
+                    current_claims, convert_to_tensor=True)
+                earlier_embeddings = self.embedder.encode(
+                    earlier_claims, convert_to_tensor=True)
+
+                from sentence_transformers import util as st_util
+                similarity_matrix = st_util.cos_sim(
+                    current_embeddings, earlier_embeddings)
+
+                negation_terms = [
+                    'not', 'never', 'no ', 'cannot',
+                    'wrong', 'incorrect', 'false',
+                    'actually', 'however', 'but ',
+                    'contrary', 'opposite', 'instead',
+                ]
+
+                for i, curr_claim in enumerate(current_claims):
+                    for j in range(len(earlier_claims)):
+                        sim = float(similarity_matrix[i][j])
+                        if sim > 0.6:
+                            curr_lower = curr_claim.lower()
+                            has_negation = any(
+                                t in curr_lower for t in negation_terms)
+                            if has_negation:
+                                contradiction_score = sim * 0.8
+                                max_contradiction_score = max(
+                                    max_contradiction_score,
+                                    contradiction_score,
+                                )
+            except Exception:
+                continue
+
+        if max_contradiction_score > 0.5:
+            return round(max_contradiction_score, 4), "drift_detected"
+        elif max_contradiction_score > 0.3:
+            return round(max_contradiction_score, 4), "possible_drift"
+        else:
+            return round(max_contradiction_score, 4), "stable"
 
     def _toxicity(self, response: str) -> float:
         # Truncate to stay within model input limits.

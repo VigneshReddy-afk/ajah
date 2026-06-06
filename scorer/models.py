@@ -1,6 +1,11 @@
 from pydantic import BaseModel, Field
 
 
+class SessionTurn(BaseModel):
+    turn_index: int
+    response_text: str
+
+
 class ScoreRequest(BaseModel):
     request_id: str
     prompt: str
@@ -8,6 +13,7 @@ class ScoreRequest(BaseModel):
     model: str
     feature_name: str
     source_context: str | None = None  # base64-encoded source document; None = no RAG verification
+    session_history: list[SessionTurn] = Field(default_factory=list)
 
 
 class ScoreResult(BaseModel):
@@ -20,6 +26,9 @@ class ScoreResult(BaseModel):
     processing_ms: int
     claim_density_risk: float = 0.0
     hedge_risk: float = 0.0
+    drift_risk: float = 0.0
+    drift_claims: list[str] = Field(default_factory=list)
+    drift_verdict: str = "not_applicable"
     # RAG verification fields — populated when source_context is provided
     rag_verdict: str = "not_applicable"
     rag_grounding_score: float = 0.0
