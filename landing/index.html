@@ -522,6 +522,119 @@
 
       .providers-strip { gap: 8px; }
     }
+
+    /* ── Pricing ── */
+    #pricing {
+      padding: 80px 0;
+      border-top: 0.5px solid var(--border2);
+    }
+    #pricing h2 {
+      text-align: center;
+      font-size: 2rem;
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+    .section-subtitle {
+      text-align: center;
+      color: var(--text2);
+      margin-bottom: 48px;
+      font-size: 16px;
+      font-weight: 300;
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    @media (max-width: 768px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+    }
+    .pricing-card {
+      background: var(--bg2);
+      border: 0.5px solid var(--border);
+      border-radius: 12px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .pricing-card-featured {
+      border-color: var(--blue-border);
+      box-shadow: 0 0 0 1px var(--blue-border);
+    }
+    .pricing-tier {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text3);
+    }
+    .pricing-price {
+      font-size: 2.5rem;
+      font-weight: 300;
+      color: var(--text);
+      line-height: 1;
+      margin: 8px 0 4px;
+    }
+    .pricing-price span {
+      font-size: 1rem;
+      font-weight: 400;
+      color: var(--text2);
+    }
+    .pricing-description {
+      color: var(--text2);
+      font-size: 14px;
+      font-weight: 300;
+      margin-bottom: 16px;
+    }
+    .pricing-features {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .pricing-features li {
+      font-size: 14px;
+      font-weight: 300;
+      color: var(--text2);
+      padding-left: 16px;
+      position: relative;
+    }
+    .pricing-features li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: var(--blue);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: center;
+      transition: opacity 0.15s, border-color 0.15s;
+    }
+    .btn.btn-primary {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+    }
+    .btn.btn-primary:hover { opacity: 0.88; }
+    .btn.btn-secondary {
+      background: transparent;
+      color: var(--text2);
+      border: 0.5px solid var(--border);
+    }
+    .btn.btn-secondary:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
   </style>
 </head>
 <body>
@@ -543,6 +656,7 @@
     <a href="https://github.com/VigneshReddy-afk/ajah">Docs</a>
     <a href="https://github.com/VigneshReddy-afk/ajah">Examples</a>
     <a href="https://github.com/VigneshReddy-afk/ajah">GitHub</a>
+    <a href="https://discord.gg/JktkwHbWx">Discord</a>
   </div>
 </nav>
 
@@ -581,7 +695,7 @@
       <div><span class="prompt">$ </span><span class="cmd">cp .env.example .env &amp;&amp; docker-compose up -d</span></div>
       <div>&nbsp;</div>
       <div><span class="prompt"># </span><span class="comment">point your app at the gateway</span></div>
-      <div><span class="prompt">$ </span><span class="cmd">OPENAI_BASE_URL=http://your-server:8080/openai/v1</span></div>
+      <div><span class="prompt">$ </span><span class="cmd">OPENAI_BASE_URL=http://your-server:8080/v1</span></div>
     </div>
   </div>
 </section>
@@ -660,6 +774,24 @@
         </div>
         <h3>PII masking</h3>
         <p>Detect and redact personally identifiable information in prompts before they leave your infrastructure. Configurable per feature, zero latency overhead.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Claim density scoring</h3>
+        <p>Flags responses that make many specific claims on low-context prompts — dates, statistics, proper nouns — a class of hallucination risk that embedding similarity misses.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🛡️</div>
+        <h3>Linguistic hedge detection</h3>
+        <p>Detects overconfident responses on complex medical, legal, and financial questions. Flags when a model responds with absolute certainty where hedging is required.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Prometheus metrics</h3>
+        <p>Native /metrics endpoint exposing ajah_requests_total, ajah_cost_usd_total, ajah_latency_ms, ajah_hallucination_risk, and more. Plug directly into your existing Grafana stack.</p>
       </div>
 
     </div>
@@ -790,6 +922,67 @@
   </div>
 </section>
 
+<!-- ── Pricing ── -->
+<section id="pricing">
+  <div class="container">
+    <h2>Pricing</h2>
+    <p class="section-subtitle">
+      Start free. Scale when you're ready.
+    </p>
+    <div class="pricing-grid">
+      <div class="pricing-card">
+        <div class="pricing-tier">Self-Hosted</div>
+        <div class="pricing-price">Free</div>
+        <div class="pricing-description">Forever</div>
+        <ul class="pricing-features">
+          <li>Full open source — MIT license</li>
+          <li>Run on your own infrastructure</li>
+          <li>No limits, no restrictions</li>
+          <li>Community support via GitHub</li>
+        </ul>
+        <a href="https://github.com/VigneshReddy-afk/ajah"
+           class="btn btn-secondary">
+          Get started →
+        </a>
+      </div>
+      <div class="pricing-card pricing-card-featured">
+        <div class="pricing-tier">Managed Cloud</div>
+        <div class="pricing-price">$199<span>/mo</span></div>
+        <div class="pricing-description">
+          We run it for you
+        </div>
+        <ul class="pricing-features">
+          <li>Dedicated instance — your data only</li>
+          <li>Live in 24 hours</li>
+          <li>Email support included</li>
+          <li>14-day free trial</li>
+        </ul>
+        <a href="mailto:vigneshreddy181200@gmail.com"
+           class="btn btn-primary">
+          Get started →
+        </a>
+      </div>
+      <div class="pricing-card">
+        <div class="pricing-tier">Enterprise</div>
+        <div class="pricing-price">Custom</div>
+        <div class="pricing-description">
+          For regulated industries
+        </div>
+        <ul class="pricing-features">
+          <li>Custom deployment on your infra</li>
+          <li>SLA guarantee</li>
+          <li>Priority support</li>
+          <li>Compliance documentation</li>
+        </ul>
+        <a href="mailto:vigneshreddy181200@gmail.com"
+           class="btn btn-secondary">
+          Contact us →
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ── Bottom CTA ── -->
 <section id="cta">
   <div class="container">
@@ -812,6 +1005,7 @@
   <div class="footer-links">
     <a href="https://github.com/VigneshReddy-afk/ajah">GitHub</a>
     <a href="https://github.com/VigneshReddy-afk/ajah">Docs</a>
+    <a href="https://discord.gg/JktkwHbWx">Discord</a>
     <a href="https://useajah.com">useajah.com</a>
   </div>
 </footer>
