@@ -18,6 +18,7 @@ const (
 	defaultProviderTimeoutSeconds = 30
 	defaultSessionTimeout         = 300
 	defaultWebhookTimeoutSeconds  = 5
+	defaultScorerTimeoutSeconds   = 30
 )
 
 // Config holds all runtime configuration for the ajah gateway.
@@ -33,6 +34,7 @@ type Config struct {
 	ProviderTimeoutSeconds int
 	SessionTimeout         int
 	WebhookTimeoutSeconds  int
+	ScorerTimeoutSeconds   int
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -49,6 +51,7 @@ func Load() (*Config, error) {
 		ProviderTimeoutSeconds: defaultProviderTimeoutSeconds,
 		SessionTimeout:         defaultSessionTimeout,
 		WebhookTimeoutSeconds:  defaultWebhookTimeoutSeconds,
+		ScorerTimeoutSeconds:   defaultScorerTimeoutSeconds,
 	}
 
 	if raw := os.Getenv("MAX_REQUEST_BODY_BYTES"); raw != "" {
@@ -89,6 +92,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid WEBHOOK_TIMEOUT_SECONDS %q: %w", raw, err)
 		}
 		cfg.WebhookTimeoutSeconds = v
+	}
+
+	if raw := os.Getenv("SCORER_TIMEOUT_SECONDS"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SCORER_TIMEOUT_SECONDS %q: %w", raw, err)
+		}
+		cfg.ScorerTimeoutSeconds = v
 	}
 
 	return cfg, nil

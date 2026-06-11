@@ -110,7 +110,9 @@ func run() error {
 	engine := attribution.New(rdb, logger)
 
 	// 8. Scorer HTTP client (best-effort; never fails the main pipeline) --------
-	scorerClient := &http.Client{Timeout: 10 * time.Second}
+	scorerClient := &http.Client{
+		Timeout: time.Duration(cfg.ScorerTimeoutSeconds) * time.Second,
+	}
 
 	// 8b. Risk flagger (async; never blocks the response path) -----------------
 	flagger := flagging.New(logger)
@@ -153,7 +155,7 @@ func run() error {
 		qualityScore := 0.0
 		var scorerOut scorerOutcome
 		if event.StatusCode == http.StatusOK {
-			scoreCtx, scoreCancel := context.WithTimeout(ctx, 10*time.Second)
+			scoreCtx, scoreCancel := context.WithTimeout(ctx, time.Duration(cfg.ScorerTimeoutSeconds)*time.Second)
 			scorerStart := time.Now()
 			scorerOut = callScorer(scoreCtx, scorerClient, cfg.ScorerURL, event, acc, logger)
 			metrics.ScorerLatencyMs.Observe(float64(time.Since(scorerStart).Milliseconds()))
