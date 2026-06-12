@@ -418,7 +418,7 @@ Custom deployment on your
 infrastructure with SLA guarantee.
 
 - Priority support
-- SSO + RBAC + audit logs
+- SSO + RBAC + Audit logs
 - Compliance documentation
 - Custom feature development
 
