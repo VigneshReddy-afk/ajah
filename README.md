@@ -337,6 +337,14 @@ All headers are optional. Omit them and Ajah still traces everything.
 
 ---
 
+## ⚙️ Configuration
+
+| Environment Variable | Default | Purpose |
+|---|---|---|
+| `SCORER_TIMEOUT_SECONDS` | `30` | Max time the gateway waits for the quality scorer (hallucination, drift, hedge detection) per request |
+
+---
+
 ## 🔍 RAG Verification
 
 When your application uses retrieval-augmented generation (RAG), Ajah can verify whether the LLM response is actually grounded in your source documents.
