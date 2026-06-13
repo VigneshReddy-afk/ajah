@@ -435,7 +435,7 @@ func run() error {
 	r := chi.NewRouter()
 	r.Use(corsMiddleware)
 
-	r.Post("/v1/chat/completions", proxyHandler.ServeHTTP)
+	r.With(rateLimitMiddleware(dbStore, rdb, logger)).Post("/v1/chat/completions", proxyHandler.ServeHTTP)
 	r.Get("/health", healthHandler)
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/metrics/cost", costMetricsHandler(rdb, logger))

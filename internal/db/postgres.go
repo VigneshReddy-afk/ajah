@@ -21,6 +21,7 @@ type FeatureSetting struct {
 	CrossModelProviderURL   string  `json:"cross_model_provider_url"`
 	CrossModelAPIKey        string  `json:"cross_model_api_key"`
 	CrossModelModel         string  `json:"cross_model_model"`
+	RateLimitRPM            int     `json:"rate_limit_rpm"`
 }
 
 // ProviderKey holds an API key for a named LLM provider.
@@ -78,6 +79,7 @@ func (s *Store) CreateTables(ctx context.Context) error {
 			cross_model_provider_url  TEXT    NOT NULL DEFAULT '',
 			cross_model_api_key       TEXT    NOT NULL DEFAULT '',
 			cross_model_model         TEXT    NOT NULL DEFAULT '',
+			rate_limit_rpm            INT     NOT NULL DEFAULT 0,
 			updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`); err != nil {
 		return fmt.Errorf("create feature_settings table: %w", err)
@@ -104,6 +106,7 @@ func (s *Store) MigrateTables(ctx context.Context) error {
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS cross_model_provider_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS cross_model_api_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS cross_model_model TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS rate_limit_rpm INT NOT NULL DEFAULT 0`,
 	}
 	for _, m := range migrations {
 		if _, err := s.db.ExecContext(ctx, m); err != nil {
@@ -117,7 +120,8 @@ func (s *Store) MigrateTables(ctx context.Context) error {
 func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url,
-		       cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model
+		       cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model,
+		       rate_limit_rpm
 		FROM feature_settings ORDER BY feature_name`)
 	if err != nil {
 		return nil, fmt.Errorf("query settings: %w", err)
@@ -130,6 +134,7 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 		if err := rows.Scan(
 			&f.FeatureName, &f.CostAlertThresholdUSD, &f.PIIMaskingEnabled, &f.WebhookURL,
 			&f.CrossModelEnabled, &f.CrossModelProviderURL, &f.CrossModelAPIKey, &f.CrossModelModel,
+			&f.RateLimitRPM,
 		); err != nil {
 			return nil, fmt.Errorf("scan setting: %w", err)
 		}
@@ -144,8 +149,9 @@ func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 		INSERT INTO feature_settings (
 			feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url,
 			cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model,
+			rate_limit_rpm,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
 		ON CONFLICT (feature_name) DO UPDATE SET
 			cost_alert_threshold_usd = EXCLUDED.cost_alert_threshold_usd,
 			pii_masking_enabled      = EXCLUDED.pii_masking_enabled,
@@ -154,9 +160,11 @@ func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 			cross_model_provider_url = EXCLUDED.cross_model_provider_url,
 			cross_model_api_key      = EXCLUDED.cross_model_api_key,
 			cross_model_model        = EXCLUDED.cross_model_model,
+			rate_limit_rpm           = EXCLUDED.rate_limit_rpm,
 			updated_at               = NOW()`,
 		f.FeatureName, f.CostAlertThresholdUSD, f.PIIMaskingEnabled, f.WebhookURL,
-		f.CrossModelEnabled, f.CrossModelProviderURL, f.CrossModelAPIKey, f.CrossModelModel)
+		f.CrossModelEnabled, f.CrossModelProviderURL, f.CrossModelAPIKey, f.CrossModelModel,
+		f.RateLimitRPM)
 	if err != nil {
 		return fmt.Errorf("upsert setting %q: %w", f.FeatureName, err)
 	}
@@ -214,6 +222,17 @@ func (s *Store) WebhookURLFor(feature string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.webhooks[feature]
+}
+
+// RateLimitRPMFor returns the configured requests-per-minute limit for a
+// feature, or 0 if no limit is configured (meaning unlimited).
+func (s *Store) RateLimitRPMFor(feature string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if f, ok := s.featureSettings[feature]; ok {
+		return f.RateLimitRPM
+	}
+	return 0
 }
 
 // RefreshCache reloads the in-memory threshold, webhook, and feature setting maps from PostgreSQL.

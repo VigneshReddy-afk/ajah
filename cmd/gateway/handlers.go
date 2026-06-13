@@ -28,6 +28,56 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// rateLimitMiddleware enforces a per-feature requests-per-minute limit using
+// a Redis counter keyed by feature name and the current minute (a fixed
+// window). Requests without X-Feature-Name, or for features with no limit
+// configured, pass through unaffected.
+func rateLimitMiddleware(
+	store *db.Store,
+	rdb *redis.Client,
+	logger *zap.Logger,
+) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			featureName := r.Header.Get("X-Feature-Name")
+			if featureName == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			limit := store.RateLimitRPMFor(featureName)
+			if limit <= 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
+			now := time.Now()
+			minute := now.Format("200601021504")
+			key := "ratelimit:" + featureName + ":" + minute
+			count, err := rdb.Incr(r.Context(), key).Result()
+			if err != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if count == 1 {
+				rdb.Expire(r.Context(), key, 70*time.Second)
+			}
+			if count > int64(limit) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", limit))
+				w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", 60-now.Second()))
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":            "rate limit exceeded",
+					"feature":          featureName,
+					"limit":            limit,
+					"reset_in_seconds": 60 - now.Second(),
+				})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // traceResponse is the JSON shape returned by GET /metrics/traces.
 type traceResponse struct {
 	TraceID           string    `json:"trace_id"`
