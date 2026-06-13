@@ -209,6 +209,7 @@ func alertsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
 type settingsPayload struct {
 	FeatureSettings []db.FeatureSetting `json:"feature_settings"`
 	ProviderKeys    []db.ProviderKey    `json:"provider_keys"`
+	SMTPConfig      db.SMTPConfig       `json:"smtp_config"`
 }
 
 // getSettingsHandler reads feature settings and provider keys from PostgreSQL.
@@ -236,10 +237,16 @@ func getSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 			keys = []db.ProviderKey{}
 		}
 
+		smtpCfg, err := store.GetSMTPConfig(ctx)
+		if err != nil {
+			smtpCfg = db.SMTPConfig{}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(settingsPayload{
 			FeatureSettings: features,
 			ProviderKeys:    keys,
+			SMTPConfig:      smtpCfg,
 		})
 	}
 }
@@ -464,6 +471,14 @@ func postSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 			if err := store.UpsertProviderKey(ctx, k); err != nil {
 				logger.Error("upsert provider key", zap.String("provider", k.Provider), zap.Error(err))
 				http.Error(w, "failed to save provider key", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if payload.SMTPConfig.Host != "" {
+			if err := store.UpsertSMTPConfig(ctx, payload.SMTPConfig); err != nil {
+				logger.Error("upsert smtp config", zap.Error(err))
+				http.Error(w, "failed to save smtp config", http.StatusInternalServerError)
 				return
 			}
 		}

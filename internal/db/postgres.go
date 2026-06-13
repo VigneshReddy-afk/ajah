@@ -22,6 +22,16 @@ type FeatureSetting struct {
 	CrossModelAPIKey        string  `json:"cross_model_api_key"`
 	CrossModelModel         string  `json:"cross_model_model"`
 	RateLimitRPM            int     `json:"rate_limit_rpm"`
+	AlertEmailTo            string  `json:"alert_email_to"`
+}
+
+// SMTPConfig holds the SMTP server credentials used to send email alerts.
+type SMTPConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	From     string `json:"from"`
 }
 
 // ProviderKey holds an API key for a named LLM provider.
@@ -94,6 +104,19 @@ func (s *Store) CreateTables(ctx context.Context) error {
 		return fmt.Errorf("create provider_keys table: %w", err)
 	}
 
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS smtp_config (
+			id         INT PRIMARY KEY DEFAULT 1,
+			host       TEXT NOT NULL DEFAULT '',
+			port       INT  NOT NULL DEFAULT 587,
+			username   TEXT NOT NULL DEFAULT '',
+			password   TEXT NOT NULL DEFAULT '',
+			from_addr  TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("create smtp_config table: %w", err)
+	}
+
 	return nil
 }
 
@@ -107,6 +130,7 @@ func (s *Store) MigrateTables(ctx context.Context) error {
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS cross_model_api_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS cross_model_model TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS rate_limit_rpm INT NOT NULL DEFAULT 0`,
+		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS alert_email_to TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, m := range migrations {
 		if _, err := s.db.ExecContext(ctx, m); err != nil {
@@ -121,7 +145,7 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url,
 		       cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model,
-		       rate_limit_rpm
+		       rate_limit_rpm, alert_email_to
 		FROM feature_settings ORDER BY feature_name`)
 	if err != nil {
 		return nil, fmt.Errorf("query settings: %w", err)
@@ -134,7 +158,7 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 		if err := rows.Scan(
 			&f.FeatureName, &f.CostAlertThresholdUSD, &f.PIIMaskingEnabled, &f.WebhookURL,
 			&f.CrossModelEnabled, &f.CrossModelProviderURL, &f.CrossModelAPIKey, &f.CrossModelModel,
-			&f.RateLimitRPM,
+			&f.RateLimitRPM, &f.AlertEmailTo,
 		); err != nil {
 			return nil, fmt.Errorf("scan setting: %w", err)
 		}
@@ -149,9 +173,9 @@ func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 		INSERT INTO feature_settings (
 			feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url,
 			cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model,
-			rate_limit_rpm,
+			rate_limit_rpm, alert_email_to,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
 		ON CONFLICT (feature_name) DO UPDATE SET
 			cost_alert_threshold_usd = EXCLUDED.cost_alert_threshold_usd,
 			pii_masking_enabled      = EXCLUDED.pii_masking_enabled,
@@ -161,10 +185,11 @@ func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 			cross_model_api_key      = EXCLUDED.cross_model_api_key,
 			cross_model_model        = EXCLUDED.cross_model_model,
 			rate_limit_rpm           = EXCLUDED.rate_limit_rpm,
+			alert_email_to           = EXCLUDED.alert_email_to,
 			updated_at               = NOW()`,
 		f.FeatureName, f.CostAlertThresholdUSD, f.PIIMaskingEnabled, f.WebhookURL,
 		f.CrossModelEnabled, f.CrossModelProviderURL, f.CrossModelAPIKey, f.CrossModelModel,
-		f.RateLimitRPM)
+		f.RateLimitRPM, f.AlertEmailTo)
 	if err != nil {
 		return fmt.Errorf("upsert setting %q: %w", f.FeatureName, err)
 	}
@@ -233,6 +258,47 @@ func (s *Store) RateLimitRPMFor(feature string) int {
 		return f.RateLimitRPM
 	}
 	return 0
+}
+
+// AlertEmailFor returns the email address configured to receive alerts for a
+// feature, or "" if none is configured.
+func (s *Store) AlertEmailFor(feature string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if f, ok := s.featureSettings[feature]; ok {
+		return f.AlertEmailTo
+	}
+	return ""
+}
+
+// GetSMTPConfig returns the configured SMTP server settings used to send
+// email alerts.
+func (s *Store) GetSMTPConfig(ctx context.Context) (SMTPConfig, error) {
+	var c SMTPConfig
+	err := s.db.QueryRowContext(ctx, `
+		SELECT host, port, username, password, from_addr
+		FROM smtp_config WHERE id = 1
+	`).Scan(&c.Host, &c.Port, &c.Username, &c.Password, &c.From)
+	if err != nil {
+		return SMTPConfig{}, err
+	}
+	return c, nil
+}
+
+// UpsertSMTPConfig inserts or updates the singleton SMTP configuration row.
+func (s *Store) UpsertSMTPConfig(ctx context.Context, c SMTPConfig) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO smtp_config (id, host, port, username, password, from_addr, updated_at)
+		VALUES (1, $1, $2, $3, $4, $5, NOW())
+		ON CONFLICT (id) DO UPDATE SET
+			host       = EXCLUDED.host,
+			port       = EXCLUDED.port,
+			username   = EXCLUDED.username,
+			password   = EXCLUDED.password,
+			from_addr  = EXCLUDED.from_addr,
+			updated_at = NOW()`,
+		c.Host, c.Port, c.Username, c.Password, c.From)
+	return err
 }
 
 // RefreshCache reloads the in-memory threshold, webhook, and feature setting maps from PostgreSQL.

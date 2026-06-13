@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/smtp"
 	"os"
 	"os/signal"
 	"strings"
@@ -253,6 +254,26 @@ func run() error {
 				if webhookURL := dbStore.WebhookURLFor(event.FeatureName); webhookURL != "" {
 					go fireWebhook(webhookURL, riskFlag, webhookClient, logger)
 				}
+
+				if alertEmail := dbStore.AlertEmailFor(event.FeatureName); alertEmail != "" {
+					if smtpCfg, err := dbStore.GetSMTPConfig(ctx); err == nil {
+						go sendEmailAlert(
+							smtpCfg,
+							alertEmail,
+							fmt.Sprintf("[Ajah Alert] Risk flag — feature: %s", event.FeatureName),
+							fmt.Sprintf(
+								"Feature: %s\nRisk Level: %s\nHallucination Risk: %.2f\nGrounding Score: %.2f\nReasons: %s\nTime: %s",
+								event.FeatureName,
+								riskFlag.RiskLevel,
+								riskFlag.HallucinationRisk,
+								riskFlag.GroundingScore,
+								strings.Join(riskFlag.Reasons, ", "),
+								event.Timestamp.UTC().Format("2006-01-02 15:04 UTC"),
+							),
+							logger,
+						)
+					}
+				}
 			}
 		}
 
@@ -382,6 +403,25 @@ func run() error {
 										webhookClient,
 										logger,
 									)
+								}
+
+								if alertEmail := dbStore.AlertEmailFor(event.FeatureName); alertEmail != "" {
+									if smtpCfg, err := dbStore.GetSMTPConfig(ctx); err == nil {
+										go sendEmailAlert(
+											smtpCfg,
+											alertEmail,
+											fmt.Sprintf("[Ajah Alert] Cost spike — feature: %s", event.FeatureName),
+											fmt.Sprintf(
+												"Feature: %s\nCost today: $%.4f\nThreshold: $%.2f\nModel: %s\nTime: %s",
+												event.FeatureName,
+												featureCost,
+												threshold,
+												event.Model,
+												event.Timestamp.UTC().Format("2006-01-02 15:04 UTC"),
+											),
+											logger,
+										)
+									}
 								}
 							}
 						}
@@ -779,6 +819,42 @@ func fireCostWebhook(
 	logger.Info("cost webhook fired",
 		zap.String("feature", featureName),
 		zap.Float64("cost_usd", costUSD),
+	)
+}
+
+// sendEmailAlert sends a plain-text email alert via SMTP. Fire-and-forget —
+// always called in a goroutine. No-op if SMTP is not configured or the
+// recipient address is empty.
+func sendEmailAlert(
+	smtpCfg db.SMTPConfig,
+	to string,
+	subject string,
+	body string,
+	logger *zap.Logger,
+) {
+	if smtpCfg.Host == "" || to == "" {
+		return
+	}
+	addr := fmt.Sprintf("%s:%d", smtpCfg.Host, smtpCfg.Port)
+	auth := smtp.PlainAuth("", smtpCfg.Username, smtpCfg.Password, smtpCfg.Host)
+	msg := []byte(
+		"To: " + to + "\r\n" +
+			"From: " + smtpCfg.From + "\r\n" +
+			"Subject: " + subject + "\r\n" +
+			"\r\n" +
+			body,
+	)
+	err := smtp.SendMail(addr, auth, smtpCfg.From, []string{to}, msg)
+	if err != nil {
+		logger.Error("email alert failed",
+			zap.String("to", to),
+			zap.Error(err),
+		)
+		return
+	}
+	logger.Info("email alert sent",
+		zap.String("to", to),
+		zap.String("subject", subject),
 	)
 }
 
