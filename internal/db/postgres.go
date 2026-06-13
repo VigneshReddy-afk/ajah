@@ -340,3 +340,8 @@ func (s *Store) FeatureSettingFor(feature string) *FeatureSetting {
 func (s *Store) Close() error {
 	return s.db.Close()
 }
+
+// Ping checks connectivity to the PostgreSQL database.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}

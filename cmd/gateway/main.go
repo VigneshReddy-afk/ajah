@@ -476,7 +476,7 @@ func run() error {
 	r.Use(corsMiddleware)
 
 	r.With(rateLimitMiddleware(dbStore, rdb, logger)).Post("/v1/chat/completions", proxyHandler.ServeHTTP)
-	r.Get("/health", healthHandler)
+	r.Get("/health", healthHandler(rdb, dbStore, writer, logger))
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/metrics/cost", costMetricsHandler(rdb, logger))
 	r.Get("/metrics/traces", tracesHandler(writer, logger))
@@ -583,9 +583,78 @@ func connectRedis(cfg *config.Config, logger *zap.Logger) (*redis.Client, error)
 	return nil, fmt.Errorf("redis unreachable after %d attempts", maxAttempts)
 }
 
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"status":"ok","version":"` + version + `"}`))
+func healthHandler(
+	rdb *redis.Client,
+	dbStore *db.Store,
+	writer *storage.Writer,
+	logger *zap.Logger,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+
+		type depStatus struct {
+			Status string `json:"status"`
+			Error  string `json:"error,omitempty"`
+		}
+
+		type healthResponse struct {
+			Status       string               `json:"status"`
+			Version      string               `json:"version"`
+			Dependencies map[string]depStatus `json:"dependencies"`
+		}
+
+		deps := map[string]depStatus{}
+		overall := "ok"
+
+		// Redis
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			deps["redis"] = depStatus{
+				Status: "down",
+				Error:  err.Error(),
+			}
+			overall = "degraded"
+		} else {
+			deps["redis"] = depStatus{
+				Status: "ok"}
+		}
+
+		// PostgreSQL
+		if err := dbStore.Ping(ctx); err != nil {
+			deps["postgres"] = depStatus{
+				Status: "down",
+				Error:  err.Error(),
+			}
+			overall = "degraded"
+		} else {
+			deps["postgres"] = depStatus{
+				Status: "ok"}
+		}
+
+		// ClickHouse
+		if err := writer.Ping(ctx); err != nil {
+			deps["clickhouse"] = depStatus{
+				Status: "down",
+				Error:  err.Error(),
+			}
+			overall = "degraded"
+		} else {
+			deps["clickhouse"] = depStatus{
+				Status: "ok"}
+		}
+
+		resp := healthResponse{
+			Status:       overall,
+			Version:      version,
+			Dependencies: deps,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if overall != "ok" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+		json.NewEncoder(w).Encode(resp)
+	}
 }
 
 func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {

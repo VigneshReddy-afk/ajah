@@ -279,6 +279,11 @@ func (w *Writer) Close() error {
 	return w.conn.Close()
 }
 
+// Ping checks connectivity to the ClickHouse server.
+func (w *Writer) Ping(ctx context.Context) error {
+	return w.conn.Ping(ctx)
+}
+
 // parseDSN converts a clickhouse:// DSN into clickhouse.Options.
 func parseDSN(dsn string) (*clickhouse.Options, error) {
 	u, err := url.Parse(dsn)
