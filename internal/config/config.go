@@ -35,6 +35,7 @@ type Config struct {
 	SessionTimeout         int
 	WebhookTimeoutSeconds  int
 	ScorerTimeoutSeconds   int
+	OTelEndpoint           string
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -46,6 +47,7 @@ func Load() (*Config, error) {
 		ClickHouseURL:          envOrDefault("CLICKHOUSE_URL", defaultClickHouseURL),
 		ScorerURL:              envOrDefault("SCORER_URL", defaultScorerURL),
 		LogLevel:               envOrDefault("LOG_LEVEL", defaultLogLevel),
+		OTelEndpoint:           envOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		MaxRequestBodyBytes:    defaultMaxRequestBodyBytes,
 		AsyncWorkerCount:       defaultAsyncWorkerCount,
 		ProviderTimeoutSeconds: defaultProviderTimeoutSeconds,

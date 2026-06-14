@@ -28,10 +28,19 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
 const version = "0.1.0"
+
+var tracer = otel.Tracer("ajah-gateway")
 
 func main() {
 	if err := run(); err != nil {
@@ -317,6 +326,32 @@ func run() error {
 		}
 		writeErr := writer.Write(ctx, record)
 
+		// OpenTelemetry span export
+		if cfg.OTelEndpoint != "" {
+			_, span := tracer.Start(ctx,
+				"ajah.llm.request",
+				oteltrace.WithTimestamp(event.Timestamp),
+			)
+			span.SetAttributes(
+				attribute.String("ajah.provider", event.Provider),
+				attribute.String("ajah.model", event.Model),
+				attribute.String("ajah.feature", event.FeatureName),
+				attribute.String("ajah.user_id", event.UserID),
+				attribute.String("ajah.session_id", event.SessionID),
+				attribute.Int("ajah.status_code", event.StatusCode),
+				attribute.Int64("ajah.latency_ms", event.LatencyMs),
+				attribute.Float64("ajah.cost_usd", costRecord.CostUSD),
+				attribute.Float64("ajah.hallucination_risk", riskFlag.HallucinationRisk),
+				attribute.Float64("ajah.grounding_score", riskFlag.GroundingScore),
+				attribute.String("ajah.risk_level", riskFlag.RiskLevel),
+				attribute.Bool("ajah.was_pii_masked", maskResult.WasMasked),
+				attribute.String("ajah.rag_verdict", scorerOut.RAGVerdict),
+			)
+			span.End(oteltrace.WithTimestamp(
+				event.Timestamp.Add(time.Duration(event.LatencyMs) * time.Millisecond),
+			))
+		}
+
 		// Prometheus instrumentation (unconditional — fires even on write error)
 		metrics.RequestsTotal.WithLabelValues(
 			event.Provider,
@@ -449,6 +484,14 @@ func run() error {
 	defer cancelEmitter()
 	emitter.Start(emitterCtx)
 	acc.StartReaper(emitterCtx)
+
+	// OpenTelemetry trace export (disabled unless OTEL_EXPORTER_OTLP_ENDPOINT is set)
+	otelShutdown, err := initOTel(emitterCtx, cfg.OTelEndpoint, logger)
+	if err != nil {
+		logger.Warn("otel init failed — export disabled", zap.Error(err))
+		otelShutdown = func(context.Context) error { return nil }
+	}
+	defer otelShutdown(emitterCtx)
 
 	// Background: refresh threshold cache every 60 s so settings changes
 	// take effect without a restart.
@@ -655,6 +698,49 @@ func healthHandler(
 		}
 		json.NewEncoder(w).Encode(resp)
 	}
+}
+
+// initOTel sets up OpenTelemetry trace export to an OTLP/HTTP collector.
+// If endpoint is empty, OTel export is disabled and a no-op shutdown is
+// returned.
+func initOTel(
+	ctx context.Context,
+	endpoint string,
+	logger *zap.Logger,
+) (func(context.Context) error, error) {
+	if endpoint == "" {
+		return func(context.Context) error {
+			return nil
+		}, nil
+	}
+
+	exp, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpoint(endpoint),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("otel exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName("ajah-gateway"),
+			semconv.ServiceVersion(version),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("otel resource: %w", err)
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+
+	logger.Info("otel export enabled", zap.String("endpoint", endpoint))
+
+	return tp.Shutdown, nil
 }
 
 func costMetricsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
