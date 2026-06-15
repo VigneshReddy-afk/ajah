@@ -1,0 +1,30 @@
+{
+  "name": "ajah-sdk",
+  "version": "0.1.0",
+  "description": "Node.js SDK for Ajah — self-hosted LLM observability gateway",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "keywords": [
+    "llm", "observability", "openai",
+    "anthropic", "groq", "gateway",
+    "hallucination", "monitoring"
+  ],
+  "author": "Vignesh Reddy <vigneshreddy181200@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/VigneshReddy-afk/ajah"
+  },
+  "homepage": "https://useajah.com",
+  "dependencies": {
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
