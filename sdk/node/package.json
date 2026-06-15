@@ -21,10 +21,12 @@
   },
   "homepage": "https://useajah.com",
   "dependencies": {
-    "openai": "^4.0.0"
+    "openai": "^4.0.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0"
   }
 }
