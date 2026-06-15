@@ -384,6 +384,43 @@ Ajah verifies each claim in the response against your source document using loca
 
 ---
 
+## 📦 SDKs & Framework Examples
+
+Official SDKs wrap the OpenAI client and auto-inject observability headers,
+with built-in session tracking and a `dashboardUrl` helper.
+
+| SDK | Install | Source |
+|---|---|---|
+| **Python** | `pip install ajah-sdk` | [`sdk/python`](sdk/python) |
+| **Node.js / TypeScript** | `npm install ajah-sdk` | [`sdk/node`](sdk/node) |
+
+```python
+from ajah import AjahClient
+
+client = AjahClient(
+    gateway_url="http://localhost:8080",
+    api_key="your-groq-key",
+    feature_name="my-app",
+    user_id="user-123",
+)
+
+with client.session() as session:
+    session.chat(model="llama-3.3-70b-versatile",
+                  messages=[{"role": "user", "content": "Plan a trip"}],
+                  step_name="step-1-planner")
+    print(session.dashboard_url)
+```
+
+Drop-in examples for popular agent frameworks live in [`examples/`](examples):
+
+| Framework | Path |
+|---|---|
+| LangChain | [`examples/langchain`](examples/langchain) |
+| LlamaIndex | [`examples/llamaindex`](examples/llamaindex) |
+| CrewAI | [`examples/crewai_example.py`](examples/crewai_example.py) |
+
+---
+
 ## 💼 Pricing
 
 <table>
