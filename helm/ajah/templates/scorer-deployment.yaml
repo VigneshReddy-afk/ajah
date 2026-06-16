@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ajah.fullname" . }}-scorer
+  labels:
+    {{- include "ajah.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scorer
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ajah.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scorer
+  template:
+    metadata:
+      labels:
+        {{- include "ajah.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scorer
+    spec:
+      containers:
+        - name: scorer
+          image: "{{ .Values.image.scorer.repository }}:{{ .Values.image.scorer.tag }}"
+          imagePullPolicy: {{ .Values.image.scorer.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.scorer.port }}
+          resources:
+            {{- toYaml .Values.resources.scorer | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.scorer.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.scorer.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ajah.fullname" . }}-scorer
+  labels:
+    {{- include "ajah.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.scorer.type }}
+  ports:
+    - port: {{ .Values.service.scorer.port }}
+      targetPort: {{ .Values.service.scorer.port }}
+  selector:
+    {{- include "ajah.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: scorer

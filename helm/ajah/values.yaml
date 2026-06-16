@@ -1,0 +1,105 @@
+# Default values for Ajah Helm chart
+# Override these in your own values file
+
+replicaCount: 1
+
+image:
+  gateway:
+    repository: ajah-gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+  dashboard:
+    repository: ajah-dashboard
+    tag: latest
+    pullPolicy: IfNotPresent
+  scorer:
+    repository: ajah-scorer
+    tag: latest
+    pullPolicy: IfNotPresent
+
+service:
+  gateway:
+    type: ClusterIP
+    port: 8080
+  dashboard:
+    type: ClusterIP
+    port: 3000
+  scorer:
+    type: ClusterIP
+    port: 8001
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ajah.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+config:
+  logLevel: info
+  asyncWorkerCount: "10"
+  providerTimeoutSeconds: "30"
+  sessionTimeout: "300"
+  webhookTimeoutSeconds: "5"
+  scorerTimeoutSeconds: "30"
+  otelEndpoint: ""
+
+clickhouse:
+  enabled: true
+  image: clickhouse/clickhouse-server:24.3
+  port: 9000
+  httpPort: 8123
+  password: ajahprod
+  storage:
+    size: 10Gi
+    storageClass: ""
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  port: 6379
+  storage:
+    size: 1Gi
+    storageClass: ""
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  port: 5432
+  database: observatory
+  username: observatory
+  password: observatory
+  storage:
+    size: 1Gi
+    storageClass: ""
+
+resources:
+  gateway:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  dashboard:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  scorer:
+    requests:
+      memory: "512Mi"
+      cpu: "200m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: ajah
+description: Self-hosted LLM observability gateway
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - llm
+  - observability
+  - ai
+  - gateway
+home: https://useajah.com
+sources:
+  - https://github.com/VigneshReddy-afk/ajah
+maintainers:
+  - name: Vignesh Reddy
+    email: vigneshreddy181200@gmail.com

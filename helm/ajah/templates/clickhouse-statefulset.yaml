@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "ajah.fullname" . }}-clickhouse
+  labels:
+    {{- include "ajah.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+spec:
+  serviceName: {{ include "ajah.fullname" . }}-clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ajah.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        {{- include "ajah.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: {{ .Values.clickhouse.image }}
+          ports:
+            - containerPort: {{ .Values.clickhouse.port }}
+            - containerPort: {{ .Values.clickhouse.httpPort }}
+          env:
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ajah.fullname" . }}-secret
+                  key: clickhouse-password
+          volumeMounts:
+            - name: clickhouse-data
+              mountPath: /var/lib/clickhouse
+  volumeClaimTemplates:
+    - metadata:
+        name: clickhouse-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.clickhouse.storage.storageClass }}
+        storageClassName: {{ .Values.clickhouse.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.storage.size }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ajah.fullname" . }}-clickhouse
+  labels:
+    {{- include "ajah.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.clickhouse.port }}
+      targetPort: {{ .Values.clickhouse.port }}
+    - port: {{ .Values.clickhouse.httpPort }}
+      targetPort: {{ .Values.clickhouse.httpPort }}
+  selector:
+    {{- include "ajah.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse

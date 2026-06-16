@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ajah.fullname" . }}-config
+  labels:
+    {{- include "ajah.labels" . | nindent 4 }}
+data:
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  ASYNC_WORKER_COUNT: {{ .Values.config.asyncWorkerCount | quote }}
+  PROVIDER_TIMEOUT_SECONDS: {{ .Values.config.providerTimeoutSeconds | quote }}
+  SESSION_TIMEOUT: {{ .Values.config.sessionTimeout | quote }}
+  WEBHOOK_TIMEOUT_SECONDS: {{ .Values.config.webhookTimeoutSeconds | quote }}
+  SCORER_TIMEOUT_SECONDS: {{ .Values.config.scorerTimeoutSeconds | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelEndpoint | quote }}
+  SCORER_URL: {{ printf "http://%s-scorer:%d" (include "ajah.fullname" .) (.Values.service.scorer.port | int) | quote }}
+  REDIS_URL: {{ printf "redis://%s-redis:%d" (include "ajah.fullname" .) (.Values.redis.port | int) | quote }}
+  DATABASE_URL: {{ printf "postgres://%s:%s@%s-postgres:%d/%s" .Values.postgres.username .Values.postgres.password (include "ajah.fullname" .) (.Values.postgres.port | int) .Values.postgres.database | quote }}
+  CLICKHOUSE_URL: {{ printf "clickhouse://default:%s@%s-clickhouse:%d/default" .Values.clickhouse.password (include "ajah.fullname" .) (.Values.clickhouse.port | int) | quote }}
