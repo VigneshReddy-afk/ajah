@@ -77,7 +77,7 @@ export default function Layout() {
         width: 196,
         flexShrink: 0,
         background: 'var(--color-background-secondary)',
-        borderRight: '0.5px solid var(--color-border-tertiary)',
+        borderRight: '1px solid var(--color-border-tertiary)',
         display: 'flex',
         flexDirection: 'column',
       }}>
@@ -91,6 +91,8 @@ export default function Layout() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 12, fontWeight: 700, color: '#fff',
               flexShrink: 0, letterSpacing: '-0.5px',
+              boxShadow: '0 0 16px rgba(45,125,210,0.3)',
+              transition: 'box-shadow 0.3s ease',
             }}>A</div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--color-text-primary)', lineHeight: 1.2 }}>ajah</div>
@@ -115,9 +117,9 @@ export default function Layout() {
                 borderRadius: 6,
                 fontSize: 13,
                 fontWeight: isActive ? 500 : 400,
-                color: isActive ? '#185FA5' : hovered === path ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                color: isActive ? 'var(--color-accent)' : hovered === path ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                 background: isActive
-                  ? 'rgba(24,95,165,0.13)'
+                  ? 'var(--color-accent-hover)'
                   : hovered === path
                   ? 'var(--color-background-primary)'
                   : 'transparent',
@@ -173,7 +175,7 @@ export default function Layout() {
       </aside>
 
       {/* ── Right column ── */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', animation: 'fadeIn 0.25s ease forwards' }}>
 
         {/* Top bar */}
         <div style={{

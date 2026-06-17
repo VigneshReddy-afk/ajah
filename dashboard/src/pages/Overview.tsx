@@ -1,17 +1,15 @@
-import type { CSSProperties } from 'react'
+import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Sector,
-  LineChart, Line, CartesianGrid,
+  LineChart, Line, CartesianGrid, Area, AreaChart,
 } from 'recharts'
 import { format } from 'date-fns'
 import { fetchJSON } from '../api/client'
 import type { CostMetrics, TraceRecord } from '../api/types'
 
-// ── Constants ──────────────────────────────────────────────────────────────
-
-const MODEL_COLORS = ['#185FA5', '#1D9E75', '#378ADD', '#D85A30', '#BA7517']
+const MODEL_COLORS = ['#2D7DD2', '#22C48A', '#F0A429', '#E05252', '#9B6DFF']
 
 const MOCK_FEATURE = [
   { name: 'chat',      cost: 0.00384 },
@@ -35,38 +33,18 @@ const MOCK_QUALITY = [
   { hour: '13:00', avg: 0.900 },
 ]
 
-const card: CSSProperties = {
-  background: 'var(--color-background-secondary)',
-  border: '0.5px solid var(--color-border-tertiary)',
-  borderRadius: 10,
-  padding: 20,
-}
-
-const chartTooltip = {
+const tooltipStyle = {
   contentStyle: {
-    background: '#111318',
-    border: '0.5px solid rgba(255,255,255,0.06)',
+    background: '#0D1117',
+    border: '1px solid rgba(45,125,210,0.2)',
     borderRadius: 8,
     fontSize: 12,
-    color: '#E3E6EF',
+    color: '#F0F4FF',
     padding: '8px 12px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
   },
-  labelStyle: { color: '#8A92A6', fontSize: 11, marginBottom: 4 },
-  cursor: { fill: 'rgba(255,255,255,0.025)' },
-}
-
-const pieTooltip = {
-  contentStyle: {
-    background: '#1E2130',
-    border: '1px solid rgba(255,255,255,0.18)',
-    borderRadius: 8,
-    fontSize: 13,
-    color: '#E3E6EF',
-    padding: '10px 14px',
-    boxShadow: '0 8px 28px rgba(0,0,0,0.65)',
-  },
-  labelStyle: { color: '#8A92A6', fontSize: 11, marginBottom: 4 },
-  itemStyle: { color: '#E3E6EF', fontWeight: 500 },
+  labelStyle: { color: '#525E7A', fontSize: 11, marginBottom: 4 },
+  cursor: { fill: 'rgba(45,125,210,0.04)' },
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,15 +52,17 @@ function PieActiveShape(props: any) {
   const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props
   return (
     <g>
-      <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 7}
-        startAngle={startAngle} endAngle={endAngle} fill={fill} opacity={0.95} />
-      <Sector cx={cx} cy={cy} innerRadius={outerRadius + 10} outerRadius={outerRadius + 13}
-        startAngle={startAngle} endAngle={endAngle} fill={fill} opacity={0.35} />
+      <Sector cx={cx} cy={cy} innerRadius={innerRadius}
+        outerRadius={outerRadius + 6}
+        startAngle={startAngle} endAngle={endAngle}
+        fill={fill} opacity={0.95} />
+      <Sector cx={cx} cy={cy}
+        innerRadius={outerRadius + 9} outerRadius={outerRadius + 12}
+        startAngle={startAngle} endAngle={endAngle}
+        fill={fill} opacity={0.3} />
     </g>
   )
 }
-
-// ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildQualityTrend(traces: TraceRecord[]) {
   const byHour: Record<string, number[]> = {}
@@ -100,58 +80,152 @@ function buildQualityTrend(traces: TraceRecord[]) {
     }))
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+function useCountUp(target: number, duration = 1000) {
+  const [count, setCount] = React.useState(0)
+  React.useEffect(() => {
+    if (target === 0) { setCount(0); return }
+    const start = performance.now()
+    const frame = (now: number) => {
+      const pct = Math.min((now - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - pct, 3)
+      setCount(Math.floor(eased * target))
+      if (pct < 1) requestAnimationFrame(frame)
+      else setCount(target)
+    }
+    requestAnimationFrame(frame)
+  }, [target, duration])
+  return count
+}
 
 function StatCard({
   label,
   value,
   sub,
+  accent,
   danger,
 }: {
   label: string
-  value: string
+  value: string | number
   sub: string
+  accent?: string
   danger?: boolean
 }) {
   return (
-    <div style={card}>
-      <p style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
+    <div style={{
+      background: 'linear-gradient(135deg, #0F1219 0%, #111520 100%)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 12,
+      padding: '24px 28px',
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease',
+      cursor: 'default',
+    }}
+    onMouseEnter={e => {
+      const el = e.currentTarget
+      el.style.borderColor = 'rgba(45,125,210,0.3)'
+      el.style.boxShadow = '0 0 24px rgba(45,125,210,0.08), 0 4px 20px rgba(0,0,0,0.4)'
+      el.style.transform = 'translateY(-2px)'
+    }}
+    onMouseLeave={e => {
+      const el = e.currentTarget
+      el.style.borderColor = 'rgba(255,255,255,0.07)'
+      el.style.boxShadow = 'none'
+      el.style.transform = 'translateY(0)'
+    }}
+    >
+      {/* Top accent line */}
+      <div style={{
+        position: 'absolute',
+        top: 0, left: 0, right: 0,
+        height: 1,
+        background: `linear-gradient(90deg, transparent, ${accent || 'rgba(45,125,210,0.6)'}, transparent)`,
+      }} />
+
+      <p style={{
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        color: '#525E7A',
+        margin: '0 0 12px',
+      }}>
         {label}
       </p>
+
       <p style={{
-        fontSize: 'var(--sz-stat)', fontWeight: 600, margin: '10px 0 6px',
-        color: danger ? '#A32D2D' : 'var(--color-text-primary)',
+        fontSize: 32,
+        fontWeight: 700,
+        margin: '0 0 8px',
+        color: danger ? '#E05252' : '#F0F4FF',
         fontVariantNumeric: 'tabular-nums',
+        letterSpacing: '-0.02em',
+        lineHeight: 1,
       }}>
         {value}
       </p>
-      <p style={{ fontSize: 'var(--sz-sm)', color: danger ? '#A32D2D' : 'var(--color-text-tertiary)', margin: 0 }}>
+
+      <p style={{
+        fontSize: 12,
+        color: danger ? 'rgba(224,82,82,0.7)' : '#525E7A',
+        margin: 0,
+      }}>
         {sub}
       </p>
     </div>
   )
 }
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({
+  title,
+  children,
+  accent,
+}: {
+  title: string
+  children: React.ReactNode
+  accent?: string
+}) {
   return (
-    <div style={{ ...card, padding: '20px 20px 16px' }}>
-      <p style={{ fontSize: 'var(--sz-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+    <div style={{
+      background: 'linear-gradient(135deg, #0F1219 0%, #111520 100%)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 12,
+      padding: '20px 20px 16px',
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+    }}
+    onMouseEnter={e => {
+      const el = e.currentTarget
+      el.style.borderColor = 'rgba(45,125,210,0.25)'
+      el.style.boxShadow = '0 0 20px rgba(45,125,210,0.06)'
+    }}
+    onMouseLeave={e => {
+      const el = e.currentTarget
+      el.style.borderColor = 'rgba(255,255,255,0.07)'
+      el.style.boxShadow = 'none'
+    }}
+    >
+      <div style={{
+        position: 'absolute',
+        top: 0, left: 0, right: 0,
+        height: 1,
+        background: `linear-gradient(90deg, transparent, ${accent || 'rgba(45,125,210,0.4)'}, transparent)`,
+      }} />
+      <p style={{
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        color: '#525E7A',
+        margin: '0 0 16px',
+      }}>
         {title}
       </p>
       {children}
     </div>
   )
 }
-
-function EmptyChart({ msg = 'No data yet' }: { msg?: string }) {
-  return (
-    <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <span style={{ fontSize: 'var(--sz-base)', color: 'var(--color-text-tertiary)' }}>{msg}</span>
-    </div>
-  )
-}
-
-// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function Overview() {
   const { data, isLoading } = useQuery<CostMetrics>({
@@ -163,132 +237,251 @@ export default function Overview() {
     queryFn: () => fetchJSON('/metrics/traces'),
   })
 
+  const totalTraces = data?.total_traces ?? 0
+  const animatedTraces = useCountUp(totalTraces > 0 ? totalTraces : 24)
+  const piiCount = data?.pii_masked_count ?? 0
+
   if (isLoading) {
     return (
-      <div style={{ padding: 24, color: 'var(--color-text-tertiary)', fontSize: 'var(--sz-base)' }}>Loading…</div>
+      <div style={{
+        padding: 32,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        color: '#525E7A',
+        fontSize: 13,
+      }}>
+        <div style={{
+          width: 16, height: 16,
+          border: '2px solid rgba(45,125,210,0.2)',
+          borderTopColor: '#2D7DD2',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        Loading metrics…
+      </div>
     )
   }
 
-  const totalCost = data ? Object.values(data.by_user).reduce((a, b) => a + b, 0) : 0
+  const totalCost = data
+    ? Object.values(data.by_user).reduce((a, b) => a + b, 0)
+    : 0
   const featureCount = data ? Object.keys(data.by_feature).length : 0
 
   const featureData = data && Object.keys(data.by_feature).length > 0
-    ? Object.entries(data.by_feature).map(([name, cost]) => ({ name, cost: +cost.toFixed(6) }))
+    ? Object.entries(data.by_feature)
+        .map(([name, cost]) => ({ name, cost: +cost.toFixed(6) }))
+        .sort((a, b) => b.cost - a.cost)
     : MOCK_FEATURE
 
   const modelData = data && Object.keys(data.by_model).length > 0
-    ? Object.entries(data.by_model).map(([name, value]) => ({ name, value: +value.toFixed(6) }))
+    ? Object.entries(data.by_model)
+        .map(([name, value]) => ({ name, value: +value.toFixed(6) }))
     : MOCK_MODEL
 
   const rawTrend = buildQualityTrend(traces)
   const qualityTrend = rawTrend.length > 0 ? rawTrend : MOCK_QUALITY
 
-  const piiCount = data?.pii_masked_count ?? 0
-  const totalTraces = data?.total_traces ?? 0
-
   return (
-    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{
+      padding: '24px 28px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 20,
+      animation: 'fadeIn 0.3s ease forwards',
+    }}>
 
-      {/* ── Stat cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+      {/* Stat cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3,1fr)',
+        gap: 16,
+      }}>
         <StatCard
           label="Total cost today"
           value={`$${totalCost > 0 ? totalCost.toFixed(5) : '0.01074'}`}
           sub="+12% vs yesterday"
+          accent="rgba(34,196,138,0.5)"
         />
         <StatCard
           label="Total traces"
-          value={totalTraces > 0 ? totalTraces.toLocaleString() : '24'}
-          sub={featureCount > 0 ? `across ${featureCount} features` : 'across 5 features'}
+          value={animatedTraces.toLocaleString()}
+          sub={featureCount > 0
+            ? `across ${featureCount} feature${featureCount > 1 ? 's' : ''}`
+            : 'across 5 features'}
+          accent="rgba(45,125,210,0.5)"
         />
         <StatCard
           label="PII detections"
-          value={piiCount > 0 ? piiCount.toLocaleString() : '3'}
+          value={piiCount > 0 ? piiCount : 3}
           sub="masked before storage"
-          danger={piiCount > 0 || true}
+          danger
+          accent="rgba(224,82,82,0.5)"
         />
       </div>
 
-      {/* ── Charts row ── */}
+      {/* Charts row */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
         {/* Cost by Feature */}
         <ChartCard title="Cost by Feature">
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={featureData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <XAxis dataKey="name" tick={{ fill: '#505867', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#505867', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={50} />
-              <Tooltip {...chartTooltip} formatter={(v: number) => [`$${v}`, 'Cost']} />
-              <Bar dataKey="cost" fill="#185FA5" radius={[4, 4, 0, 0]} maxBarSize={36} />
+            <BarChart
+              data={featureData}
+              margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+            >
+              <XAxis
+                dataKey="name"
+                tick={{ fill: '#3A4560', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: '#3A4560', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={v => `$${v}`}
+                width={50}
+              />
+              <Tooltip
+                {...tooltipStyle}
+                formatter={(v: number) => [`$${v}`, 'Cost']}
+              />
+              <Bar
+                dataKey="cost"
+                fill="#2D7DD2"
+                radius={[6, 6, 0, 0]}
+                maxBarSize={40}
+              >
+                {featureData.map((_, i) => (
+                  <Cell
+                    key={i}
+                    fill={i === 0 ? '#2D7DD2' : `rgba(45,125,210,${0.8 - i * 0.15})`}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Cost by Model (donut) */}
+        {/* Cost by Model donut */}
         <ChartCard title="Cost by Model">
-          {modelData.length === 0 ? <EmptyChart /> : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <ResponsiveContainer width="55%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={modelData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%" cy="50%"
-                    innerRadius={52} outerRadius={78}
-                    paddingAngle={2}
-                    activeShape={PieActiveShape}
-                  >
-                    {modelData.map((_, i) => (
-                      <Cell key={i} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    {...pieTooltip}
-                    formatter={(v: number) => [`$${v.toFixed(6)}`, 'Cost']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {modelData.map((m, i) => (
-                  <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: 2, background: MODEL_COLORS[i % MODEL_COLORS.length], flexShrink: 0 }} />
-                    <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
-                    <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>${m.value.toFixed(5)}</span>
-                  </div>
-                ))}
-              </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <ResponsiveContainer width="55%" height={200}>
+              <PieChart>
+                <Pie
+                  data={modelData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%" cy="50%"
+                  innerRadius={52} outerRadius={76}
+                  paddingAngle={3}
+                  activeShape={PieActiveShape}
+                >
+                  {modelData.map((_, i) => (
+                    <Cell
+                      key={i}
+                      fill={MODEL_COLORS[i % MODEL_COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={tooltipStyle.contentStyle}
+                  formatter={(v: number) => [`$${v.toFixed(6)}`, 'Cost']}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+            }}>
+              {modelData.map((m, i) => (
+                <div key={m.name} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <div style={{
+                    width: 8, height: 8,
+                    borderRadius: 2,
+                    background: MODEL_COLORS[i % MODEL_COLORS.length],
+                    flexShrink: 0,
+                    boxShadow: `0 0 6px ${MODEL_COLORS[i % MODEL_COLORS.length]}60`,
+                  }} />
+                  <span style={{
+                    fontSize: 11,
+                    color: '#8B95B8',
+                    flex: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {m.name}
+                  </span>
+                  <span style={{
+                    fontSize: 11,
+                    color: '#525E7A',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    ${m.value.toFixed(5)}
+                  </span>
+                </div>
+              ))}
             </div>
-          )}
+          </div>
         </ChartCard>
       </div>
 
-      {/* ── Quality Trend (full width) ── */}
-      <ChartCard title="Output Quality Trend">
-        <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={qualityTrend} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-            <XAxis dataKey="hour" tick={{ fill: '#505867', fontSize: 11 }} axisLine={false} tickLine={false} />
+      {/* Quality Trend - Area chart */}
+      <ChartCard
+        title="Output Quality Trend"
+        accent="rgba(34,196,138,0.4)"
+      >
+        <ResponsiveContainer width="100%" height={180}>
+          <AreaChart
+            data={qualityTrend}
+            margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="qualityGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#22C48A" stopOpacity={0.15}/>
+                <stop offset="95%" stopColor="#22C48A" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="rgba(255,255,255,0.03)"
+              vertical={false}
+            />
+            <XAxis
+              dataKey="hour"
+              tick={{ fill: '#3A4560', fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+            />
             <YAxis
               domain={[0, 1]}
-              tick={{ fill: '#505867', fontSize: 11 }}
+              tick={{ fill: '#3A4560', fontSize: 11 }}
               axisLine={false} tickLine={false}
               tickFormatter={v => v.toFixed(1)}
               width={32}
             />
             <Tooltip
-              {...chartTooltip}
+              {...tooltipStyle}
               formatter={(v: number) => [v.toFixed(4), 'Avg quality']}
             />
-            <Line
+            <Area
               type="monotone"
               dataKey="avg"
-              stroke="#1D9E75"
+              stroke="#22C48A"
               strokeWidth={2}
-              dot={{ fill: '#1D9E75', r: 3, strokeWidth: 0 }}
+              fill="url(#qualityGradient)"
+              dot={{ fill: '#22C48A', r: 3, strokeWidth: 0 }}
               activeDot={{ r: 5, strokeWidth: 0 }}
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </ChartCard>
 
