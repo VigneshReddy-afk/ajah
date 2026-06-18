@@ -94,6 +94,15 @@ An open-source, self-hostable LLM safety and observability platform.
 - POST /settings
 - GET /settings
 
+### Kubernetes / Helm
+- Kubernetes Helm chart — `helm/ajah/` chart deploys all 6 services to any K8s cluster. `values.yaml` exposes image tags, replica counts, resource limits, ingress config, and secret refs. `helm install ajah ./helm/ajah` for a one-command cluster deploy.
+
+- Python SDK published to PyPI — `pip install ajah-sdk` live at pypi.org/project/ajah-sdk/0.1.0/ — `AjahClient` and `AjahSession` classes.
+
+- Node.js SDK published to npm — `npm install ajah-sdk` live at npmjs.com/package/ajah-sdk — full TypeScript types included.
+
+- CONTRIBUTING.md — complete contributor guide with dev setup, test commands, PR workflow, and code style for Go, Python, and React.
+
 ---
 
 ## Test Coverage
@@ -246,14 +255,21 @@ Currently on: Day 3 complete, Day 4 pending.
 - feat(gateway): wire session history to scorer for narrative drift detection
 - feat(dashboard): add Drift Risk column and Drift Only filter to Warnings page
 
+## Commits Made (June 18, 2026)
+
+- docs: expand CONTRIBUTING.md with full contributor guide
+- feat: Python SDK published to PyPI
+- feat: Node.js SDK published to npm
+- fix: normalize repository URL in Node.js SDK package.json
+
 ---
 
 ## Immediate Next Tasks (Priority Order)
 
-1. Fix scorer latency — averaging 9500ms, timing out on long responses. Investigate sentence-transformers inference speed.
-2. Slack webhook for risk alerts now Slack-formatted — both cost and risk alerts working with Slack
-3. Get first paying customer — $199/month, vigneshreddy181200@gmail.com
-4. Anthropic startup program — applied, awaiting response
+1. Get first paying customer — $199/month managed cloud, vigneshreddy181200@gmail.com
+2. Show HN post — karma check needed
+3. Fix scorer latency — 9500ms average
+4. Audit log CSV export
 
 ---
 
