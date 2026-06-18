@@ -9,15 +9,20 @@
     "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "keywords": [
-    "llm", "observability", "openai",
-    "anthropic", "groq", "gateway",
-    "hallucination", "monitoring"
+    "llm",
+    "observability",
+    "openai",
+    "anthropic",
+    "groq",
+    "gateway",
+    "hallucination",
+    "monitoring"
   ],
   "author": "Vignesh Reddy <vigneshreddy181200@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/VigneshReddy-afk/ajah"
+    "url": "git+https://github.com/VigneshReddy-afk/ajah.git"
   },
   "homepage": "https://useajah.com",
   "dependencies": {
