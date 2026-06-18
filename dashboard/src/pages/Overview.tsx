@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Sector,
-  LineChart, Line, CartesianGrid, Area, AreaChart,
+  AreaChart, Area, CartesianGrid,
 } from 'recharts'
 import { format } from 'date-fns'
 import { fetchJSON } from '../api/client'
@@ -103,17 +103,28 @@ function StatCard({
   sub,
   accent,
   danger,
+  bg,
+  border,
+  valueFontSize,
+  labelColor,
 }: {
   label: string
   value: string | number
   sub: string
   accent?: string
   danger?: boolean
+  bg?: string
+  border?: string
+  valueFontSize?: number
+  labelColor?: string
 }) {
+  const defaultBg = 'linear-gradient(135deg, #0F1219 0%, #111520 100%)'
+  const defaultBorder = 'rgba(255,255,255,0.07)'
+  const resolvedBorder = border ?? `1px solid ${defaultBorder}`
   return (
     <div style={{
-      background: 'linear-gradient(135deg, #0F1219 0%, #111520 100%)',
-      border: '1px solid rgba(255,255,255,0.07)',
+      background: bg ?? defaultBg,
+      border: resolvedBorder,
       borderRadius: 12,
       padding: '24px 28px',
       position: 'relative',
@@ -129,7 +140,9 @@ function StatCard({
     }}
     onMouseLeave={e => {
       const el = e.currentTarget
-      el.style.borderColor = 'rgba(255,255,255,0.07)'
+      el.style.borderColor = border
+        ? border.replace('1px solid ', '')
+        : defaultBorder
       el.style.boxShadow = 'none'
       el.style.transform = 'translateY(0)'
     }}
@@ -147,14 +160,14 @@ function StatCard({
         fontWeight: 600,
         letterSpacing: '0.1em',
         textTransform: 'uppercase',
-        color: '#525E7A',
+        color: labelColor ?? '#525E7A',
         margin: '0 0 12px',
       }}>
         {label}
       </p>
 
       <p style={{
-        fontSize: 32,
+        fontSize: valueFontSize ?? 32,
         fontWeight: 700,
         margin: '0 0 8px',
         color: danger ? '#E05252' : '#F0F4FF',
@@ -180,10 +193,12 @@ function ChartCard({
   title,
   children,
   accent,
+  badge,
 }: {
   title: string
   children: React.ReactNode
   accent?: string
+  badge?: React.ReactNode
 }) {
   return (
     <div style={{
@@ -212,16 +227,19 @@ function ChartCard({
         height: 1,
         background: `linear-gradient(90deg, transparent, ${accent || 'rgba(45,125,210,0.4)'}, transparent)`,
       }} />
-      <p style={{
-        fontSize: 10,
-        fontWeight: 600,
-        letterSpacing: '0.1em',
-        textTransform: 'uppercase',
-        color: '#525E7A',
-        margin: '0 0 16px',
-      }}>
-        {title}
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 16px' }}>
+        <p style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: '#525E7A',
+          margin: 0,
+        }}>
+          {title}
+        </p>
+        {badge}
+      </div>
       {children}
     </div>
   )
@@ -284,7 +302,7 @@ export default function Overview() {
 
   return (
     <div style={{
-      padding: '24px 28px',
+      padding: '28px 32px',
       display: 'flex',
       flexDirection: 'column',
       gap: 20,
@@ -294,14 +312,18 @@ export default function Overview() {
       {/* Stat cards */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(3,1fr)',
+        gridTemplateColumns: '2fr 1fr 1fr',
         gap: 16,
       }}>
         <StatCard
-          label="Total cost today"
+          label="◆ Total cost today"
           value={`$${totalCost > 0 ? totalCost.toFixed(5) : '0.01074'}`}
           sub="+12% vs yesterday"
           accent="rgba(34,196,138,0.5)"
+          bg="linear-gradient(135deg, #0A0E1A 0%, #0D1220 50%, #0A0E1A 100%)"
+          border="1px solid rgba(45,125,210,0.18)"
+          valueFontSize={48}
+          labelColor="#2D7DD2"
         />
         <StatCard
           label="Total traces"
@@ -316,12 +338,14 @@ export default function Overview() {
           value={piiCount > 0 ? piiCount : 3}
           sub="masked before storage"
           danger
+          bg="linear-gradient(135deg, #0E0A0A 0%, #130D0D 100%)"
+          border="1px solid rgba(224,82,82,0.15)"
           accent="rgba(224,82,82,0.5)"
         />
       </div>
 
       {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 16 }}>
 
         {/* Cost by Feature */}
         <ChartCard title="Cost by Feature">
@@ -434,10 +458,33 @@ export default function Overview() {
         </ChartCard>
       </div>
 
-      {/* Quality Trend - Area chart */}
+      {/* Quality Trend */}
       <ChartCard
         title="Output Quality Trend"
         accent="rgba(34,196,138,0.4)"
+        badge={
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            background: 'rgba(34,196,138,0.08)',
+            border: '1px solid rgba(34,196,138,0.15)',
+            borderRadius: 20,
+            padding: '2px 8px',
+            fontSize: 10,
+            fontWeight: 600,
+            color: '#22C48A',
+            letterSpacing: '0.06em',
+          }}>
+            <span style={{
+              width: 5, height: 5,
+              borderRadius: '50%',
+              background: '#22C48A',
+              animation: 'pulsarDot 1.4s ease-in-out infinite',
+            }} />
+            LIVE
+          </span>
+        }
       >
         <ResponsiveContainer width="100%" height={180}>
           <AreaChart
@@ -445,8 +492,8 @@ export default function Overview() {
             margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
           >
             <defs>
-              <linearGradient id="qualityGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#22C48A" stopOpacity={0.15}/>
+              <linearGradient id="qGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#22C48A" stopOpacity={0.2}/>
                 <stop offset="95%" stopColor="#22C48A" stopOpacity={0}/>
               </linearGradient>
             </defs>
@@ -477,7 +524,7 @@ export default function Overview() {
               dataKey="avg"
               stroke="#22C48A"
               strokeWidth={2}
-              fill="url(#qualityGradient)"
+              fill="url(#qGrad)"
               dot={{ fill: '#22C48A', r: 3, strokeWidth: 0 }}
               activeDot={{ r: 5, strokeWidth: 0 }}
             />

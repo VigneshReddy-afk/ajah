@@ -1,0 +1,285 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* ── Backgrounds ── */
+  --color-background-tertiary:  #090C14;
+  --color-background-secondary: #0F1219;
+  --color-background-primary:   #161B27;
+  --color-background-card:      #111520;
+
+  /* ── Borders ── */
+  --color-border-tertiary:  rgba(255, 255, 255, 0.09);
+  --color-border-secondary: rgba(255, 255, 255, 0.14);
+  --color-border-hover:     rgba(45, 125, 210, 0.35);
+
+  /* ── Accent (brand blue) ── */
+  --color-accent:       #2D7DD2;
+  --color-accent-glow:  rgba(45, 125, 210, 0.15);
+  --color-accent-hover: rgba(45, 125, 210, 0.20);
+
+  /* ── Semantic colors ── */
+  --color-danger:      #E05252;
+  --color-danger-glow: rgba(224, 82, 82, 0.12);
+  --color-success:     #22C48A;
+  --color-warning:     #F0A429;
+
+  /* ── Text ── */
+  --color-text-primary:   #EDF0FA;
+  --color-text-secondary: #9BA4BE;
+  --color-text-tertiary:  #626E86;
+
+  /* ── Font size scale (medium default) ── */
+  --sz-label: 10px;
+  --sz-xs:    11px;
+  --sz-sm:    12px;
+  --sz-base:  13px;
+  --sz-lg:    14px;
+  --sz-stat:  28px;
+}
+
+/* ── Compact (–1 px per tier) ── */
+html.sz-sm {
+  --sz-label: 9px;
+  --sz-xs:    10px;
+  --sz-sm:    11px;
+  --sz-base:  12px;
+  --sz-lg:    13px;
+  --sz-stat:  22px;
+}
+
+/* ── Comfortable (+1 px per tier) ── */
+html.sz-lg {
+  --sz-label: 11px;
+  --sz-xs:    12px;
+  --sz-sm:    13px;
+  --sz-base:  14px;
+  --sz-lg:    15px;
+  --sz-stat:  32px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-background-tertiary);
+  color: var(--color-text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* ── Keyframe Animations ── */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulsarDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+@keyframes dangerPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* ── Page transition ── */
+
+.page-enter {
+  animation: fadeIn 0.25s ease forwards;
+}
+
+.stat-enter {
+  animation: countUp 0.4s ease forwards;
+}
+
+/* ── Card component ── */
+
+.ajah-card {
+  background: var(--color-background-card);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 10px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.ajah-card:hover {
+  border-color: var(--color-border-hover);
+  box-shadow: 0 0 20px var(--color-accent-glow);
+  transform: translateY(-1px);
+}
+
+/* ── Danger value (PII, high risk) ── */
+
+.danger-value {
+  color: var(--color-danger);
+  animation: dangerPulse 2.5s ease-in-out infinite;
+}
+
+/* ── Accent top-border card ── */
+
+.ajah-card-accent::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-accent), transparent);
+  border-radius: 10px 10px 0 0;
+}
+
+/* ── Badge ── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: var(--sz-xs);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.badge-high {
+  color: var(--color-danger);
+  background: var(--color-danger-glow);
+}
+
+.badge-medium {
+  color: var(--color-warning);
+  background: rgba(240, 164, 41, 0.12);
+}
+
+.badge-low {
+  color: var(--color-success);
+  background: rgba(34, 196, 138, 0.12);
+}
+
+/* ── Table ── */
+
+.ajah-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ajah-table th {
+  font-size: var(--sz-xs);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+  text-align: left;
+}
+
+.ajah-table td {
+  font-size: var(--sz-base);
+  color: var(--color-text-secondary);
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+
+.ajah-table tr:hover td {
+  background: var(--color-accent-glow);
+}
+
+/* ── Nav active state ── */
+
+.nav-active {
+  position: relative;
+}
+
+.nav-active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 4px; bottom: 4px;
+  width: 2px;
+  background: var(--color-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Input ── */
+
+.ajah-input {
+  background: var(--color-background-secondary);
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: var(--sz-base);
+  padding: 7px 12px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-family: inherit;
+}
+
+.ajah-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-glow);
+}
+
+/* ── Button ── */
+
+.ajah-btn {
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: var(--sz-base);
+  font-weight: 500;
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  font-family: inherit;
+}
+
+.ajah-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px var(--color-accent-glow);
+}
+
+/* ── Filter tabs ── */
+
+.filter-tab {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: var(--sz-sm);
+  font-weight: 500;
+  cursor: pointer;
+  border: 0.5px solid transparent;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  font-family: inherit;
+}
+
+.filter-tab.active {
+  background: var(--color-accent-hover);
+  color: var(--color-accent);
+  border-color: var(--color-border-hover);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
