@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ajah/core/internal/db"
@@ -167,6 +169,91 @@ func tracesHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc 
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// exportCSVHandler streams up to 1000 recent traces as a downloadable CSV.
+func exportCSVHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		traces, err := writer.QueryRecent(ctx, 1000)
+		if err != nil {
+			logger.Error("csv export query failed", zap.Error(err))
+			http.Error(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", `attachment; filename="ajah-audit-log.csv"`)
+
+		cw := csv.NewWriter(w)
+
+		_ = cw.Write([]string{
+			"timestamp",
+			"trace_id",
+			"request_id",
+			"user_id",
+			"session_id",
+			"feature_name",
+			"provider",
+			"model",
+			"input_tokens",
+			"output_tokens",
+			"cost_usd",
+			"latency_ms",
+			"status_code",
+			"was_pii_masked",
+			"quality_score",
+			"hallucination_risk",
+			"grounding_score",
+			"risk_level",
+			"should_warn",
+			"rag_verdict",
+			"rag_grounding_score",
+			"rag_contradiction_score",
+			"cross_model_verdict",
+			"cross_model_agreement",
+			"agent_step",
+			"step_name",
+			"tool_name",
+		})
+
+		for _, t := range traces {
+			_ = cw.Write([]string{
+				t.Timestamp.UTC().Format(time.RFC3339),
+				t.TraceID,
+				t.RequestID,
+				t.UserID,
+				t.SessionID,
+				t.FeatureName,
+				t.Provider,
+				t.Model,
+				strconv.Itoa(t.InputTokens),
+				strconv.Itoa(t.OutputTokens),
+				strconv.FormatFloat(t.CostUSD, 'f', 8, 64),
+				strconv.FormatInt(t.LatencyMs, 10),
+				strconv.Itoa(t.StatusCode),
+				strconv.FormatBool(t.WasPIIMasked),
+				strconv.FormatFloat(t.QualityScore, 'f', 4, 64),
+				strconv.FormatFloat(t.HallucinationRisk, 'f', 4, 64),
+				strconv.FormatFloat(t.GroundingScore, 'f', 4, 64),
+				t.RiskLevel,
+				strconv.FormatBool(t.ShouldWarn),
+				t.RAGVerdict,
+				strconv.FormatFloat(t.RAGGroundingScore, 'f', 4, 64),
+				strconv.FormatFloat(t.RAGContradictionScore, 'f', 4, 64),
+				t.CrossModelVerdict,
+				strconv.FormatFloat(t.CrossModelAgreement, 'f', 4, 64),
+				t.AgentStep,
+				t.StepName,
+				t.ToolName,
+			})
+		}
+
+		cw.Flush()
+		if err := cw.Error(); err != nil {
+			logger.Error("csv flush failed", zap.Error(err))
+		}
 	}
 }
 

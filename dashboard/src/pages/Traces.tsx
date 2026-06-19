@@ -284,6 +284,33 @@ export default function Traces() {
         <span style={{ fontSize: 'var(--sz-xs)', color: 'var(--color-text-tertiary)' }}>
           {rows.length} rows — click row to expand
         </span>
+        <a
+          href="http://localhost:8080/export/traces"
+          download="ajah-audit-log.csv"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '6px 12px',
+            background: 'rgba(45,125,210,0.1)',
+            border: '1px solid rgba(45,125,210,0.25)',
+            borderRadius: 6,
+            color: '#2D7DD2',
+            fontSize: 'var(--sz-sm)',
+            fontWeight: 600,
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'background 0.15s ease',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(45,125,210,0.18)'
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(45,125,210,0.1)'
+          }}
+        >
+          ↓ Export CSV
+        </a>
       </div>
 
       <div style={{

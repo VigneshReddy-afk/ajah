@@ -585,6 +585,7 @@ func run() error {
 	r.Get("/warnings", warningsHandler(rdb, logger))
 	r.Get("/warnings/{requestID}", warningByRequestIDHandler(rdb, logger))
 	r.Get("/anomalies", anomaliesHandler(rdb, logger))
+	r.Get("/export/traces", exportCSVHandler(writer, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
