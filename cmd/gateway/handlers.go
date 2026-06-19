@@ -444,6 +444,28 @@ func warningsHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
 	}
 }
 
+// anomaliesHandler returns the last 100 statistical anomalies from Redis.
+func anomaliesHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		data, err := rdb.LRange(ctx, "anomalies:list", 0, 99).Result()
+		if err != nil {
+			logger.Error("read anomalies list", zap.Error(err))
+			http.Error(w, "redis error", http.StatusInternalServerError)
+			return
+		}
+		anomalies := make([]json.RawMessage, 0, len(data))
+		for _, d := range data {
+			anomalies = append(anomalies, json.RawMessage(d))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"anomalies": anomalies,
+			"total":     len(anomalies),
+		})
+	}
+}
+
 // postSettingsHandler persists feature settings and provider keys to PostgreSQL,
 // then refreshes the in-memory threshold cache.
 func postSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {

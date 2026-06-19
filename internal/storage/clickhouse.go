@@ -274,6 +274,73 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 	return records, nil
 }
 
+// FeatureBaseline holds per-feature statistical baselines computed over a
+// rolling lookback window. Used by the anomaly detector.
+type FeatureBaseline struct {
+	FeatureName      string
+	AvgHallucination float64
+	StdHallucination float64
+	AvgCostUSD       float64
+	StdCostUSD       float64
+	AvgLatencyMs     float64
+	StdLatencyMs     float64
+	AvgQualityScore  float64
+	StdQualityScore  float64
+	SampleCount      int64
+}
+
+// QueryFeatureBaselines returns per-feature AVG/STDDEV baselines computed over
+// the last lookbackDays days. Only features with ≥10 successful samples are
+// included.
+func (w *Writer) QueryFeatureBaselines(ctx context.Context, lookbackDays int) ([]FeatureBaseline, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			feature_name,
+			AVG(hallucination_risk)       AS avg_hallucination,
+			stddevPop(hallucination_risk) AS std_hallucination,
+			AVG(cost_usd)                 AS avg_cost,
+			stddevPop(cost_usd)           AS std_cost,
+			AVG(latency_ms)               AS avg_latency,
+			stddevPop(latency_ms)         AS std_latency,
+			AVG(quality_score)            AS avg_quality,
+			stddevPop(quality_score)      AS std_quality,
+			COUNT()                       AS sample_count
+		FROM traces
+		WHERE timestamp >= now() - INTERVAL %d DAY
+		  AND feature_name != ''
+		  AND status_code = 200
+		GROUP BY feature_name
+		HAVING sample_count >= 10
+	`, lookbackDays)
+
+	rows, err := w.conn.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var baselines []FeatureBaseline
+	for rows.Next() {
+		var b FeatureBaseline
+		if err := rows.Scan(
+			&b.FeatureName,
+			&b.AvgHallucination,
+			&b.StdHallucination,
+			&b.AvgCostUSD,
+			&b.StdCostUSD,
+			&b.AvgLatencyMs,
+			&b.StdLatencyMs,
+			&b.AvgQualityScore,
+			&b.StdQualityScore,
+			&b.SampleCount,
+		); err != nil {
+			return nil, err
+		}
+		baselines = append(baselines, b)
+	}
+	return baselines, rows.Err()
+}
+
 // Close releases the underlying ClickHouse connection.
 func (w *Writer) Close() error {
 	return w.conn.Close()

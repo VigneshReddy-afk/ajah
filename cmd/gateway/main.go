@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ajah/core/internal/anomaly"
 	"github.com/ajah/core/internal/attribution"
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/crossmodel"
@@ -134,6 +135,11 @@ func run() error {
 	// 9. Session accumulator ---------------------------------------------------
 	acc := sessions.New(rdb, writer, logger)
 	acc.SetSessionTimeout(time.Duration(cfg.SessionTimeout) * time.Second)
+
+	// 9b. Anomaly detector -----------------------------------------------------
+	anomalyDetector := anomaly.New(writer, logger)
+	// Best-effort initial load — no traces yet on a fresh deployment is fine.
+	_ = anomalyDetector.RefreshBaselines(context.Background())
 
 	// 10. Event emitter --------------------------------------------------------
 	const dailyKeyTTL = 90 * 24 * time.Hour
@@ -390,6 +396,38 @@ func run() error {
 			event.FeatureName,
 		).Set(scorerOut.DriftRisk)
 
+		// Anomaly detection — z-score against per-feature 7-day baselines.
+		if event.FeatureName != "" {
+			anomalies := anomalyDetector.Detect(
+				event.RequestID,
+				event.FeatureName,
+				riskFlag.HallucinationRisk,
+				costRecord.CostUSD,
+				event.LatencyMs,
+				qualityScore,
+			)
+			for _, a := range anomalies {
+				logger.Warn("anomaly detected",
+					zap.String("type", string(a.Type)),
+					zap.String("feature", a.FeatureName),
+					zap.Float64("value", a.Value),
+					zap.Float64("baseline", a.Baseline),
+					zap.Float64("z_score", a.ZScore),
+				)
+				aJSON, _ := json.Marshal(map[string]interface{}{
+					"request_id":   a.RequestID,
+					"feature_name": a.FeatureName,
+					"type":         string(a.Type),
+					"value":        a.Value,
+					"baseline":     a.Baseline,
+					"z_score":      a.ZScore,
+					"detected_at":  a.DetectedAt,
+				})
+				rdb.LPush(ctx, "anomalies:list", string(aJSON))
+				rdb.LTrim(ctx, "anomalies:list", 0, 99)
+			}
+		}
+
 		if writeErr != nil {
 			if firstErr == nil {
 				firstErr = writeErr
@@ -508,6 +546,22 @@ func run() error {
 		}
 	}()
 
+	// Background: refresh anomaly baselines every 5 min from ClickHouse.
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := anomalyDetector.RefreshBaselines(context.Background()); err != nil {
+					logger.Warn("anomaly baseline refresh failed", zap.Error(err))
+				}
+			case <-emitterCtx.Done():
+				return
+			}
+		}
+	}()
+
 	// 10. Prometheus metrics registration -------------------------------------
 	metrics.Register()
 
@@ -530,6 +584,7 @@ func run() error {
 	r.Get("/sessions/{sessionID}", sessionDetailHandler(writer, logger))
 	r.Get("/warnings", warningsHandler(rdb, logger))
 	r.Get("/warnings/{requestID}", warningByRequestIDHandler(rdb, logger))
+	r.Get("/anomalies", anomaliesHandler(rdb, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
