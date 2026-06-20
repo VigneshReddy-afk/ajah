@@ -652,6 +652,8 @@ func run() error {
 	r.Get("/anomalies", anomaliesHandler(rdb, logger))
 	r.Get("/export/traces", exportCSVHandler(writer, logger))
 	r.Post("/v1/compare", compareHandler(cfg, logger))
+	r.Get("/traces/{requestID}", traceByIDHandler(writer, logger))
+	r.Post("/traces/{requestID}/replay", replayHandler(writer, cfg, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{

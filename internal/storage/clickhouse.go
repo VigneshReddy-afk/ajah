@@ -274,6 +274,70 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 	return records, nil
 }
 
+// QueryByRequestID fetches the single trace row matching requestID, or nil if not found.
+func (w *Writer) QueryByRequestID(ctx context.Context, requestID string) (*TraceRecord, error) {
+	rows, err := w.conn.Query(ctx, `
+		SELECT
+			trace_id, request_id, user_id,
+			session_id, feature_name, agent_step,
+			provider, model, input_tokens,
+			output_tokens, cost_usd, latency_ms,
+			status_code, masked_prompt,
+			was_pii_masked, quality_score,
+			timestamp, parent_step_id, step_name,
+			tool_name, hallucination_risk,
+			grounding_score, risk_level,
+			should_warn, rag_verdict,
+			rag_grounding_score,
+			rag_contradiction_score,
+			cross_model_verdict,
+			cross_model_agreement
+		FROM traces
+		WHERE request_id = ?
+		LIMIT 1`, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, nil
+	}
+
+	var r TraceRecord
+	var (
+		inputTokens  int32
+		outputTokens int32
+		statusCode   int32
+		wasPII       uint8
+		shouldWarn   uint8
+	)
+	if err := rows.Scan(
+		&r.TraceID, &r.RequestID, &r.UserID,
+		&r.SessionID, &r.FeatureName, &r.AgentStep,
+		&r.Provider, &r.Model,
+		&inputTokens, &outputTokens,
+		&r.CostUSD, &r.LatencyMs, &statusCode,
+		&r.MaskedPrompt, &wasPII,
+		&r.QualityScore, &r.Timestamp,
+		&r.ParentStepID, &r.StepName, &r.ToolName,
+		&r.HallucinationRisk, &r.GroundingScore,
+		&r.RiskLevel, &shouldWarn,
+		&r.RAGVerdict, &r.RAGGroundingScore,
+		&r.RAGContradictionScore,
+		&r.CrossModelVerdict,
+		&r.CrossModelAgreement,
+	); err != nil {
+		return nil, err
+	}
+	r.InputTokens = int(inputTokens)
+	r.OutputTokens = int(outputTokens)
+	r.StatusCode = int(statusCode)
+	r.WasPIIMasked = wasPII == 1
+	r.ShouldWarn = shouldWarn == 1
+	return &r, rows.Err()
+}
+
 // FeatureBaseline holds per-feature statistical baselines computed over a
 // rolling lookback window. Used by the anomaly detector.
 type FeatureBaseline struct {

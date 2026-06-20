@@ -177,6 +177,148 @@ func tracesHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc 
 	}
 }
 
+// traceByIDHandler fetches a single trace from ClickHouse by request ID.
+func traceByIDHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		requestID := chi.URLParam(r, "requestID")
+		if requestID == "" {
+			http.Error(w, "missing requestID", 400)
+			return
+		}
+
+		trace, err := writer.QueryByRequestID(r.Context(), requestID)
+		if err != nil {
+			logger.Error("trace by id query failed",
+				zap.String("request_id", requestID),
+				zap.Error(err))
+			http.Error(w, "query failed", 500)
+			return
+		}
+		if trace == nil {
+			http.Error(w, "trace not found", 404)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(trace)
+	}
+}
+
+// replayHandler re-sends the stored prompt for a trace to the original provider
+// and returns a side-by-side comparison of the original and replay outcomes.
+func replayHandler(writer *storage.Writer, cfg *config.Config, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		requestID := chi.URLParam(r, "requestID")
+		if requestID == "" {
+			http.Error(w, "missing requestID", 400)
+			return
+		}
+
+		trace, err := writer.QueryByRequestID(r.Context(), requestID)
+		if err != nil || trace == nil {
+			http.Error(w, "trace not found", 404)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header required", 401)
+			return
+		}
+
+		payload := map[string]interface{}{
+			"model": trace.Model,
+			"messages": []map[string]interface{}{
+				{
+					"role":    "user",
+					"content": trace.MaskedPrompt,
+				},
+			},
+		}
+		payloadBytes, _ := json.Marshal(payload)
+
+		key := strings.TrimPrefix(authHeader, "Bearer ")
+		providerURL := "https://api.groq.com/openai/v1"
+		if strings.HasPrefix(key, "sk-ant-") {
+			providerURL = "https://api.anthropic.com"
+		} else if strings.HasPrefix(key, "sk-") {
+			providerURL = "https://api.openai.com"
+		} else if strings.HasPrefix(key, "AIza") {
+			providerURL = "https://generativelanguage.googleapis.com/v1beta/openai"
+		}
+
+		upstreamURL := providerURL + "/v1/chat/completions"
+
+		start := time.Now()
+		upstreamReq, err := http.NewRequestWithContext(
+			r.Context(),
+			http.MethodPost,
+			upstreamURL,
+			bytes.NewReader(payloadBytes),
+		)
+		if err != nil {
+			http.Error(w, "request build failed", 500)
+			return
+		}
+		upstreamReq.Header.Set("Content-Type", "application/json")
+		upstreamReq.Header.Set("Authorization", authHeader)
+
+		client := &http.Client{
+			Timeout: time.Duration(cfg.ProviderTimeoutSeconds) * time.Second,
+		}
+
+		resp, err := client.Do(upstreamReq)
+		latencyMs := time.Since(start).Milliseconds()
+		if err != nil {
+			http.Error(w, "upstream failed", 502)
+			return
+		}
+		defer resp.Body.Close()
+
+		respBody, _ := io.ReadAll(resp.Body)
+
+		var parsed struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		_ = json.Unmarshal(respBody, &parsed)
+
+		replayResponse := ""
+		if len(parsed.Choices) > 0 {
+			replayResponse = parsed.Choices[0].Message.Content
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"original": map[string]interface{}{
+				"request_id":         trace.RequestID,
+				"model":              trace.Model,
+				"prompt":             trace.MaskedPrompt,
+				"latency_ms":         trace.LatencyMs,
+				"cost_usd":           trace.CostUSD,
+				"quality_score":      trace.QualityScore,
+				"hallucination_risk": trace.HallucinationRisk,
+				"timestamp":          trace.Timestamp,
+			},
+			"replay": map[string]interface{}{
+				"model":         trace.Model,
+				"response":      replayResponse,
+				"input_tokens":  parsed.Usage.PromptTokens,
+				"output_tokens": parsed.Usage.CompletionTokens,
+				"latency_ms":    latencyMs,
+				"replayed_at":   time.Now().UTC(),
+			},
+		})
+	}
+}
+
 // exportCSVHandler streams up to 1000 recent traces as a downloadable CSV.
 func exportCSVHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
