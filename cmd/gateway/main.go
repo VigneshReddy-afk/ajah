@@ -992,8 +992,90 @@ func extractSegment(key, prefix, suffix string) string {
 	return s
 }
 
-// fireCostWebhook POSTs a Slack-formatted cost spike alert to webhookURL.
-// Fire-and-forget — always called in a goroutine.
+// sendWebhook marshals payload and POSTs it to webhookURL with exponential
+// backoff retry (4 attempts: 500 ms / 1 s / 2 s / 4 s). 4xx responses are
+// treated as permanent failures and not retried.
+func sendWebhook(
+	webhookURL string,
+	payload map[string]interface{},
+	client *http.Client,
+	logger *zap.Logger,
+	label string,
+) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		logger.Error("webhook marshal failed",
+			zap.String("label", label),
+			zap.Error(err))
+		return
+	}
+
+	maxAttempts := 4
+	baseDelay := 500 * time.Millisecond
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			delay := baseDelay * time.Duration(1<<uint(attempt-1))
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+			logger.Info("webhook retry backoff",
+				zap.String("label", label),
+				zap.Int("attempt", attempt+1),
+				zap.Duration("delay", delay))
+			time.Sleep(delay)
+		}
+
+		req, err := http.NewRequestWithContext(
+			context.Background(),
+			http.MethodPost,
+			webhookURL,
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			logger.Error("webhook build request failed",
+				zap.String("label", label),
+				zap.Error(err))
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			logger.Warn("webhook attempt failed",
+				zap.String("label", label),
+				zap.Int("attempt", attempt+1),
+				zap.Error(err))
+			continue
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			logger.Info("webhook delivered",
+				zap.String("label", label),
+				zap.Int("attempt", attempt+1),
+				zap.Int("status", resp.StatusCode))
+			return
+		}
+
+		logger.Warn("webhook non-2xx",
+			zap.String("label", label),
+			zap.Int("attempt", attempt+1),
+			zap.Int("status", resp.StatusCode))
+
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			logger.Error("webhook 4xx — not retrying",
+				zap.String("label", label),
+				zap.Int("status", resp.StatusCode))
+			return
+		}
+	}
+
+	logger.Error("webhook failed after all attempts",
+		zap.String("label", label),
+		zap.Int("max_attempts", maxAttempts))
+}
+
 func fireCostWebhook(
 	webhookURL string,
 	featureName string,
@@ -1005,32 +1087,18 @@ func fireCostWebhook(
 ) {
 	payload := map[string]interface{}{
 		"text": fmt.Sprintf(
-			"🚨 *Cost Alert — Ajah*\n*Feature:* %s\n*Cost today:* $%.4f\n*Threshold:* $%.2f\n*Model:* %s",
+			"🚨 *Cost Alert — Ajah*\n"+
+				"*Feature:* %s\n"+
+				"*Cost today:* $%.4f\n"+
+				"*Threshold:* $%.2f\n"+
+				"*Model:* %s",
 			featureName,
 			costUSD,
 			threshold,
 			model,
 		),
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		logger.Error("cost webhook marshal error", zap.Error(err))
-		return
-	}
-	resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		logger.Error("cost webhook post error", zap.Error(err))
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		logger.Error("cost webhook non-2xx", zap.Int("status", resp.StatusCode))
-		return
-	}
-	logger.Info("cost webhook fired",
-		zap.String("feature", featureName),
-		zap.Float64("cost_usd", costUSD),
-	)
+	sendWebhook(webhookURL, payload, client, logger, "cost:"+featureName)
 }
 
 // sendEmailAlert sends a plain-text email alert via SMTP. Fire-and-forget —
@@ -1069,12 +1137,20 @@ func sendEmailAlert(
 	)
 }
 
-// fireWebhook POSTs the RiskFlag JSON to webhookURL. It retries once on any
-// non-2xx response or network error. Always fire-and-forget — never blocks.
-func fireWebhook(webhookURL string, flag flagging.RiskFlag, client *http.Client, logger *zap.Logger) {
-	slackMsg := map[string]interface{}{
+func fireWebhook(
+	webhookURL string,
+	flag flagging.RiskFlag,
+	client *http.Client,
+	logger *zap.Logger,
+) {
+	payload := map[string]interface{}{
 		"text": fmt.Sprintf(
-			"⚠️ *Risk Alert — Ajah*\n*Feature:* %s\n*Risk Level:* %s\n*Hallucination Risk:* %.2f\n*Grounding Score:* %.2f\n*Reasons:* %s",
+			"⚠️  *Risk Alert — Ajah*\n"+
+				"*Feature:* %s\n"+
+				"*Risk Level:* %s\n"+
+				"*Hallucination Risk:* %.2f\n"+
+				"*Grounding Score:* %.2f\n"+
+				"*Reasons:* %s",
 			flag.RequestID,
 			flag.RiskLevel,
 			flag.HallucinationRisk,
@@ -1082,35 +1158,5 @@ func fireWebhook(webhookURL string, flag flagging.RiskFlag, client *http.Client,
 			strings.Join(flag.Reasons, ", "),
 		),
 	}
-	body, err := json.Marshal(slackMsg)
-	if err != nil {
-		logger.Warn("webhook: marshal failed", zap.Error(err))
-		return
-	}
-	for attempt := range 2 {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, webhookURL, bytes.NewReader(body))
-		if err != nil {
-			logger.Warn("webhook: build request failed", zap.Error(err))
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(req)
-		if err != nil {
-			if attempt == 0 {
-				logger.Warn("webhook: attempt failed, retrying", zap.String("url", webhookURL), zap.Error(err))
-				continue
-			}
-			logger.Warn("webhook: failed after retry", zap.String("url", webhookURL), zap.Error(err))
-			return
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return
-		}
-		if attempt == 0 {
-			logger.Warn("webhook: non-2xx, retrying", zap.String("url", webhookURL), zap.Int("status", resp.StatusCode))
-			continue
-		}
-		logger.Warn("webhook: non-2xx after retry", zap.String("url", webhookURL), zap.Int("status", resp.StatusCode))
-	}
+	sendWebhook(webhookURL, payload, client, logger, "risk:"+flag.RequestID)
 }
