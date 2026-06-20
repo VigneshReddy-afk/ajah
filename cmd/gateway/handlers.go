@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/db"
 	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -596,5 +601,148 @@ func postSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
+	}
+}
+
+func compareHandler(
+	cfg *config.Config,
+	logger *zap.Logger,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		type CompareRequest struct {
+			Models   []string                 `json:"models"`
+			Messages []map[string]interface{} `json:"messages"`
+		}
+
+		type ModelResult struct {
+			Model        string  `json:"model"`
+			Response     string  `json:"response"`
+			InputTokens  int     `json:"input_tokens"`
+			OutputTokens int     `json:"output_tokens"`
+			CostUSD      float64 `json:"cost_usd"`
+			LatencyMs    int64   `json:"latency_ms"`
+			StatusCode   int     `json:"status_code"`
+			Error        string  `json:"error,omitempty"`
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			http.Error(w, "read error", 400)
+			return
+		}
+
+		var req CompareRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+
+		if len(req.Models) < 2 {
+			http.Error(w, "provide at least 2 models", 400)
+			return
+		}
+		if len(req.Models) > 4 {
+			http.Error(w, "maximum 4 models", 400)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+
+		results := make([]ModelResult, len(req.Models))
+		var wg sync.WaitGroup
+
+		for i, model := range req.Models {
+			wg.Add(1)
+			go func(idx int, modelName string) {
+				defer wg.Done()
+				start := time.Now()
+
+				payload := map[string]interface{}{
+					"model":    modelName,
+					"messages": req.Messages,
+				}
+				payloadBytes, _ := json.Marshal(payload)
+
+				key := strings.TrimPrefix(authHeader, "Bearer ")
+				providerURL := "https://api.groq.com/openai/v1"
+				if strings.HasPrefix(key, "sk-ant-") {
+					providerURL = "https://api.anthropic.com"
+				} else if strings.HasPrefix(key, "sk-") {
+					providerURL = "https://api.openai.com"
+				} else if strings.HasPrefix(key, "AIza") {
+					providerURL = "https://generativelanguage.googleapis.com/v1beta/openai"
+				} else if strings.HasPrefix(key, "xai-") {
+					providerURL = "https://api.x.ai"
+				} else if strings.HasPrefix(key, "mistral-") {
+					providerURL = "https://api.mistral.ai"
+				}
+
+				upstreamURL := providerURL + "/v1/chat/completions"
+
+				upstreamReq, err := http.NewRequestWithContext(
+					r.Context(),
+					http.MethodPost,
+					upstreamURL,
+					bytes.NewReader(payloadBytes),
+				)
+				if err != nil {
+					results[idx] = ModelResult{Model: modelName, Error: err.Error()}
+					return
+				}
+				upstreamReq.Header.Set("Content-Type", "application/json")
+				upstreamReq.Header.Set("Authorization", authHeader)
+
+				client := &http.Client{
+					Timeout: time.Duration(cfg.ProviderTimeoutSeconds) * time.Second,
+				}
+
+				resp, err := client.Do(upstreamReq)
+				latency := time.Since(start).Milliseconds()
+
+				if err != nil {
+					results[idx] = ModelResult{Model: modelName, LatencyMs: latency, Error: err.Error()}
+					return
+				}
+				defer resp.Body.Close()
+
+				respBody, _ := io.ReadAll(resp.Body)
+
+				var parsed struct {
+					Choices []struct {
+						Message struct {
+							Content string `json:"content"`
+						} `json:"message"`
+					} `json:"choices"`
+					Usage struct {
+						PromptTokens     int `json:"prompt_tokens"`
+						CompletionTokens int `json:"completion_tokens"`
+					} `json:"usage"`
+				}
+				_ = json.Unmarshal(respBody, &parsed)
+
+				responseText := ""
+				if len(parsed.Choices) > 0 {
+					responseText = parsed.Choices[0].Message.Content
+				}
+
+				results[idx] = ModelResult{
+					Model:        modelName,
+					Response:     responseText,
+					InputTokens:  parsed.Usage.PromptTokens,
+					OutputTokens: parsed.Usage.CompletionTokens,
+					LatencyMs:    latency,
+					StatusCode:   resp.StatusCode,
+				}
+			}(i, model)
+		}
+
+		wg.Wait()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results":     results,
+			"models":      req.Models,
+			"compared_at": time.Now().UTC(),
+		})
 	}
 }
