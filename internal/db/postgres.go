@@ -34,6 +34,14 @@ type SMTPConfig struct {
 	From     string `json:"from"`
 }
 
+// UserSetting holds per-user budget and alert configuration.
+type UserSetting struct {
+	UserID          string  `json:"user_id"`
+	BudgetUSDPerDay float64 `json:"budget_usd_per_day"`
+	AlertEmailTo    string  `json:"alert_email_to"`
+	WebhookURL      string  `json:"webhook_url"`
+}
+
 // ProviderKey holds an API key for a named LLM provider.
 type ProviderKey struct {
 	Provider string `json:"provider"`
@@ -51,6 +59,9 @@ type Store struct {
 	thresholds      map[string]float64
 	webhooks        map[string]string
 	featureSettings map[string]FeatureSetting
+
+	userSettingsMu sync.RWMutex
+	userSettings   map[string]UserSetting
 }
 
 // New opens a PostgreSQL connection and pings the server.
@@ -73,6 +84,7 @@ func New(dsn string, logger *zap.Logger) (*Store, error) {
 		thresholds:      make(map[string]float64),
 		webhooks:        make(map[string]string),
 		featureSettings: make(map[string]FeatureSetting),
+		userSettings:    make(map[string]UserSetting),
 	}, nil
 }
 
@@ -115,6 +127,17 @@ func (s *Store) CreateTables(ctx context.Context) error {
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`); err != nil {
 		return fmt.Errorf("create smtp_config table: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS user_settings (
+			user_id              TEXT PRIMARY KEY,
+			budget_usd_per_day   FLOAT8 NOT NULL DEFAULT 0,
+			alert_email_to       TEXT   NOT NULL DEFAULT '',
+			webhook_url          TEXT   NOT NULL DEFAULT '',
+			updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("create user_settings table: %w", err)
 	}
 
 	return nil
@@ -344,4 +367,69 @@ func (s *Store) Close() error {
 // Ping checks connectivity to the PostgreSQL database.
 func (s *Store) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
+}
+
+// UpsertUserSetting inserts or updates a single user setting row.
+func (s *Store) UpsertUserSetting(ctx context.Context, u UserSetting) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO user_settings
+			(user_id, budget_usd_per_day, alert_email_to, webhook_url, updated_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (user_id) DO UPDATE SET
+			budget_usd_per_day = EXCLUDED.budget_usd_per_day,
+			alert_email_to     = EXCLUDED.alert_email_to,
+			webhook_url        = EXCLUDED.webhook_url,
+			updated_at         = NOW()
+	`, u.UserID, u.BudgetUSDPerDay, u.AlertEmailTo, u.WebhookURL)
+	return err
+}
+
+// GetUserSettings returns all user_settings rows where a budget is configured.
+func (s *Store) GetUserSettings(ctx context.Context) ([]UserSetting, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id, budget_usd_per_day, alert_email_to, webhook_url
+		FROM user_settings
+		WHERE budget_usd_per_day > 0
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var settings []UserSetting
+	for rows.Next() {
+		var u UserSetting
+		if err := rows.Scan(
+			&u.UserID,
+			&u.BudgetUSDPerDay,
+			&u.AlertEmailTo,
+			&u.WebhookURL,
+		); err != nil {
+			return nil, err
+		}
+		settings = append(settings, u)
+	}
+	return settings, rows.Err()
+}
+
+// RefreshUserCache reloads the in-memory user settings map from PostgreSQL.
+func (s *Store) RefreshUserCache(ctx context.Context) error {
+	settings, err := s.GetUserSettings(ctx)
+	if err != nil {
+		return err
+	}
+	s.userSettingsMu.Lock()
+	defer s.userSettingsMu.Unlock()
+	s.userSettings = make(map[string]UserSetting, len(settings))
+	for _, u := range settings {
+		s.userSettings[u.UserID] = u
+	}
+	return nil
+}
+
+// UserSettingFor returns the cached UserSetting for a user ID, and whether it exists.
+func (s *Store) UserSettingFor(userID string) (UserSetting, bool) {
+	s.userSettingsMu.RLock()
+	defer s.userSettingsMu.RUnlock()
+	u, ok := s.userSettings[userID]
+	return u, ok
 }

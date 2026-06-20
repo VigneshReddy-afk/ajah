@@ -604,6 +604,51 @@ func postSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 	}
 }
 
+func getUserSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		settings, err := store.GetUserSettings(r.Context())
+		if err != nil {
+			logger.Error("get user settings failed", zap.Error(err))
+			http.Error(w, "db error", 500)
+			return
+		}
+		if settings == nil {
+			settings = []db.UserSetting{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"user_settings": settings,
+		})
+	}
+}
+
+func postUserSettingsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			UserSettings []db.UserSetting `json:"user_settings"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+		for _, u := range payload.UserSettings {
+			if u.UserID == "" {
+				continue
+			}
+			if err := store.UpsertUserSetting(r.Context(), u); err != nil {
+				logger.Error("upsert user setting failed",
+					zap.String("user_id", u.UserID),
+					zap.Error(err))
+				http.Error(w, "db error", 500)
+				return
+			}
+		}
+		_ = store.RefreshUserCache(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	}
+}
+
 func compareHandler(
 	cfg *config.Config,
 	logger *zap.Logger,

@@ -10,6 +10,7 @@ import (
 	"net/smtp"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -503,6 +504,67 @@ func run() error {
 			}
 		}
 
+		// Per-user budget alert
+		if event.UserID != "" {
+			if userSetting, ok := dbStore.UserSettingFor(event.UserID); ok &&
+				userSetting.BudgetUSDPerDay > 0 {
+				day := event.Timestamp.UTC().Format("2006-01-02")
+				userCostKey := fmt.Sprintf("cost:user:%s:daily:%s", event.UserID, day)
+				userCostStr, err := rdb.Get(ctx, userCostKey).Result()
+				if err == nil {
+					userCost, _ := strconv.ParseFloat(userCostStr, 64)
+					if userCost > userSetting.BudgetUSDPerDay {
+						firedKey := fmt.Sprintf("budget:fired:%s:%s", event.UserID, day)
+						set, err := rdb.SetNX(ctx, firedKey, "1", 25*time.Hour).Result()
+						if err == nil && set {
+							logger.Warn("user budget exceeded",
+								zap.String("user_id", event.UserID),
+								zap.Float64("cost", userCost),
+								zap.Float64("budget", userSetting.BudgetUSDPerDay),
+							)
+							if userSetting.WebhookURL != "" {
+								payload := map[string]interface{}{
+									"text": fmt.Sprintf(
+										"💸 *User Budget Alert — Ajah*\n"+
+											"*User:* %s\n"+
+											"*Cost today:* $%.4f\n"+
+											"*Budget:* $%.2f",
+										event.UserID,
+										userCost,
+										userSetting.BudgetUSDPerDay,
+									),
+								}
+								go sendWebhook(
+									userSetting.WebhookURL,
+									payload,
+									webhookClient,
+									logger,
+									"budget:"+event.UserID,
+								)
+							}
+							if userSetting.AlertEmailTo != "" {
+								if smtpCfg, err := dbStore.GetSMTPConfig(ctx); err == nil {
+									go sendEmailAlert(
+										smtpCfg,
+										userSetting.AlertEmailTo,
+										fmt.Sprintf("[Ajah Alert] Budget exceeded — user: %s", event.UserID),
+										fmt.Sprintf(
+											"User: %s\nCost today: $%.4f\nBudget: $%.2f\nTime: %s",
+											event.UserID,
+											userCost,
+											userSetting.BudgetUSDPerDay,
+											event.Timestamp.UTC().Format("2006-01-02 15:04 UTC"),
+										),
+										logger,
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
 		// Step 5: session accumulation (best-effort; never breaks the pipeline)
 		if event.SessionID != "" {
 			if addErr := acc.AddTrace(ctx, event.SessionID, record); addErr != nil {
@@ -540,6 +602,7 @@ func run() error {
 			select {
 			case <-ticker.C:
 				dbStore.RefreshCache(context.Background())
+				_ = dbStore.RefreshUserCache(context.Background())
 			case <-emitterCtx.Done():
 				return
 			}
@@ -580,6 +643,8 @@ func run() error {
 	r.Get("/metrics/alerts", alertsHandler(rdb, logger))
 	r.Get("/settings", getSettingsHandler(dbStore, logger))
 	r.Post("/settings", postSettingsHandler(dbStore, logger))
+	r.Get("/settings/users", getUserSettingsHandler(dbStore, logger))
+	r.Post("/settings/users", postUserSettingsHandler(dbStore, logger))
 	r.Get("/sessions", sessionsHandler(writer, logger))
 	r.Get("/sessions/{sessionID}", sessionDetailHandler(writer, logger))
 	r.Get("/warnings", warningsHandler(rdb, logger))
