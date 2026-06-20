@@ -36,6 +36,8 @@ type Config struct {
 	WebhookTimeoutSeconds  int
 	ScorerTimeoutSeconds   int
 	OTelEndpoint           string
+	CacheEnabled           bool
+	CacheTTLSeconds        int
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -102,6 +104,17 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid SCORER_TIMEOUT_SECONDS %q: %w", raw, err)
 		}
 		cfg.ScorerTimeoutSeconds = v
+	}
+
+	cfg.CacheEnabled = os.Getenv("CACHE_ENABLED") == "true"
+
+	if raw := os.Getenv("CACHE_TTL_SECONDS"); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			cfg.CacheTTLSeconds = v
+		}
+	}
+	if cfg.CacheTTLSeconds == 0 {
+		cfg.CacheTTLSeconds = 3600
 	}
 
 	return cfg, nil

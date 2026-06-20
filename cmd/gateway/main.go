@@ -566,7 +566,7 @@ func run() error {
 	metrics.Register()
 
 	// 10b. Proxy handler -------------------------------------------------------
-	proxyHandler := proxy.New(cfg, emitter, logger)
+	proxyHandler := proxy.New(cfg, emitter, logger, rdb)
 
 	// 11. Router ---------------------------------------------------------------
 	r := chi.NewRouter()

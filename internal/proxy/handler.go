@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -30,21 +33,31 @@ type eventSink interface {
 	Emit(event events.RequestEvent)
 }
 
+// redisClient is a subset of *redis.Client used for response caching.
+// Accepting an interface rather than the concrete type keeps tests free of a real Redis dep.
+type redisClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+}
+
 // Handler is the HTTP reverse proxy for LLM provider APIs.
 type Handler struct {
 	cfg          *config.Config
 	emitter      eventSink
 	logger       *zap.Logger
+	rdb          redisClient
 	client       *http.Client
 	providerURLs map[string]string
 }
 
-// New creates a Handler with the given configuration, emitter, and logger.
-func New(cfg *config.Config, em eventSink, logger *zap.Logger) *Handler {
+// New creates a Handler with the given configuration, emitter, logger, and optional Redis client.
+// Pass nil for rdb to disable response caching.
+func New(cfg *config.Config, em eventSink, logger *zap.Logger, rdb redisClient) *Handler {
 	return &Handler{
 		cfg:     cfg,
 		emitter: em,
 		logger:  logger,
+		rdb:     rdb,
 		client: &http.Client{
 			Timeout: time.Duration(cfg.ProviderTimeoutSeconds) * time.Second,
 		},
@@ -66,6 +79,13 @@ func New(cfg *config.Config, em eventSink, logger *zap.Logger) *Handler {
 // Intended for integration tests that need to point the handler at a mock server.
 func (h *Handler) SetProviderURL(provider, url string) {
 	h.providerURLs[provider] = url
+}
+
+// cacheKey returns a Redis key derived from the provider name and request body.
+// Provider is included so identical bodies routed to different providers never collide.
+func (h *Handler) cacheKey(provider string, body []byte) string {
+	sum := sha256.Sum256(append([]byte(provider+":"), body...))
+	return "cache:" + hex.EncodeToString(sum[:])
 }
 
 // ServeHTTP proxies the request to the appropriate LLM provider.
@@ -126,6 +146,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.cfg.CacheEnabled && h.rdb != nil {
+		ck := h.cacheKey(provider, body)
+		if cached, err := h.rdb.Get(r.Context(), ck).Bytes(); err == nil {
+			w.Header().Set("X-Ajah-Cache", "hit")
+			w.Header().Set("X-Ajah-Request-ID", requestID)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(cached)
+			log.Info("cache hit", zap.String("cache_key", ck))
+			return
+		}
+	}
+
 	model := extractModel(body)
 
 	targetURL := buildTargetURL(providerURL, r.URL.RequestURI())
@@ -166,6 +198,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Error("failed to read upstream response body", zap.Error(err))
 		http.Error(w, "failed to read upstream response", http.StatusBadGateway)
 		return
+	}
+
+	if h.cfg.CacheEnabled && h.rdb != nil {
+		if resp.StatusCode == http.StatusOK {
+			ck := h.cacheKey(provider, body)
+			ttl := time.Duration(h.cfg.CacheTTLSeconds) * time.Second
+			_ = h.rdb.Set(r.Context(), ck, respBody, ttl)
+		}
+		w.Header().Set("X-Ajah-Cache", "miss")
 	}
 
 	inputTokens, outputTokens := extractTokens(respBody)
