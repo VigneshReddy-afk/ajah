@@ -127,6 +127,13 @@ type warningItem struct {
 	Reasons           []string  `json:"reasons"`
 	Timestamp         time.Time `json:"timestamp"`
 	RAGVerdict        string    `json:"rag_verdict"`
+	HedgeRisk         float64   `json:"hedge_risk"`
+	DriftRisk         float64   `json:"drift_risk"`
+	DriftVerdict      string    `json:"drift_verdict"`
+	InjectionRisk     float64   `json:"injection_risk"`
+	JailbreakRisk     float64   `json:"jailbreak_risk"`
+	ExfilRisk         float64   `json:"exfil_risk"`
+	SecurityVerdict   string    `json:"security_verdict"`
 }
 
 // tracesHandler returns the 100 most recent traces from ClickHouse.

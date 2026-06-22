@@ -248,6 +248,13 @@ func run() error {
 					Reasons:           riskFlag.Reasons,
 					Timestamp:         event.Timestamp,
 					RAGVerdict:        scorerOut.RAGVerdict,
+					HedgeRisk:         scorerOut.HedgeRisk,
+					DriftRisk:         scorerOut.DriftRisk,
+					DriftVerdict:      scorerOut.DriftVerdict,
+					InjectionRisk:     event.InjectionRisk,
+					JailbreakRisk:     event.JailbreakRisk,
+					ExfilRisk:         event.ExfilRisk,
+					SecurityVerdict:   event.SecurityVerdict,
 				}
 				if wiJSON, marshalErr := json.Marshal(wi); marshalErr == nil {
 					rdb.LPush(ctx, "warnings:list", string(wiJSON))
@@ -331,6 +338,10 @@ func run() error {
 			RAGContradictionScore: scorerOut.RAGContradictionScore,
 			CrossModelVerdict:     crossModelVerdict,
 			CrossModelAgreement:   crossModelAgreement,
+			InjectionRisk:         event.InjectionRisk,
+			JailbreakRisk:         event.JailbreakRisk,
+			ExfilRisk:             event.ExfilRisk,
+			SecurityVerdict:       event.SecurityVerdict,
 		}
 		writeErr := writer.Write(ctx, record)
 
@@ -629,11 +640,17 @@ func run() error {
 	// 10. Prometheus metrics registration -------------------------------------
 	metrics.Register()
 
-	// 10b. Security detector (prompt injection / jailbreak / exfiltration) -----
-	securityDetector := security.New(0.7)
+	// 10b. Security detector ---------------------------------------------------
+	// SECURITY_BLOCK_ENABLED=true rejects flagged requests with 400.
+	// Default is log-only (block threshold = 0 means never block).
+	secBlockThresh := 0.0
+	if os.Getenv("SECURITY_BLOCK_ENABLED") == "true" {
+		secBlockThresh = 0.7
+	}
+	secDetector := security.New(secBlockThresh)
 
 	// 10c. Proxy handler -------------------------------------------------------
-	proxyHandler := proxy.New(cfg, emitter, logger, rdb, securityDetector)
+	proxyHandler := proxy.New(cfg, emitter, logger, rdb, secDetector)
 
 	// 11. Router ---------------------------------------------------------------
 	r := chi.NewRouter()
