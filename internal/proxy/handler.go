@@ -17,6 +17,7 @@ import (
 
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
+	"github.com/ajah/core/internal/security"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -42,22 +43,25 @@ type redisClient interface {
 
 // Handler is the HTTP reverse proxy for LLM provider APIs.
 type Handler struct {
-	cfg          *config.Config
-	emitter      eventSink
-	logger       *zap.Logger
-	rdb          redisClient
-	client       *http.Client
-	providerURLs map[string]string
+	cfg              *config.Config
+	emitter          eventSink
+	logger           *zap.Logger
+	rdb              redisClient
+	client           *http.Client
+	providerURLs     map[string]string
+	securityDetector *security.Detector
 }
 
 // New creates a Handler with the given configuration, emitter, logger, and optional Redis client.
 // Pass nil for rdb to disable response caching.
-func New(cfg *config.Config, em eventSink, logger *zap.Logger, rdb redisClient) *Handler {
+// Pass nil for det to disable security scanning.
+func New(cfg *config.Config, em eventSink, logger *zap.Logger, rdb redisClient, det *security.Detector) *Handler {
 	return &Handler{
-		cfg:     cfg,
-		emitter: em,
-		logger:  logger,
-		rdb:     rdb,
+		cfg:              cfg,
+		emitter:          em,
+		logger:           logger,
+		rdb:              rdb,
+		securityDetector: det,
 		client: &http.Client{
 			Timeout: time.Duration(cfg.ProviderTimeoutSeconds) * time.Second,
 		},
@@ -103,12 +107,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID        := r.Header.Get("X-User-ID")
-	sessionID     := r.Header.Get("X-Session-ID")
-	featureName   := r.Header.Get("X-Feature-Name")
-	stepName      := r.Header.Get("X-Agent-Step")
-	parentStepID  := r.Header.Get("X-Parent-Step-ID")
-	toolName      := r.Header.Get("X-Tool-Name")
+	userID := r.Header.Get("X-User-ID")
+	sessionID := r.Header.Get("X-Session-ID")
+	featureName := r.Header.Get("X-Feature-Name")
+	stepName := r.Header.Get("X-Agent-Step")
+	parentStepID := r.Header.Get("X-Parent-Step-ID")
+	toolName := r.Header.Get("X-Tool-Name")
 	sourceContext := r.Header.Get("X-Source-Context")
 
 	provider, providerURL, err := h.detectProvider(r.Header.Get("Authorization"))
@@ -159,6 +163,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model := extractModel(body)
+
+	// Security scan — runs synchronously on the prompt before forwarding.
+	// In block mode (ShouldBlock=true) the request is rejected with 400.
+	// In log-only mode the scan result is recorded but the request proceeds.
+	var secScan security.ScanResult
+	if h.securityDetector != nil {
+		prompt := extractPrompt(body)
+		secScan = h.securityDetector.Scan(prompt)
+		if secScan.Verdict != "clean" {
+			log.Warn("security scan flagged prompt",
+				zap.String("verdict", secScan.Verdict),
+				zap.Float64("injection_risk", secScan.InjectionRisk),
+				zap.Float64("jailbreak_risk", secScan.JailbreakRisk),
+				zap.Float64("exfil_risk", secScan.ExfilRisk),
+				zap.Int("threat_count", len(secScan.Threats)),
+			)
+		}
+		if secScan.ShouldBlock {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Ajah-Security-Verdict", secScan.Verdict)
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":          "request blocked by Ajah security policy",
+				"verdict":        secScan.Verdict,
+				"injection_risk": secScan.InjectionRisk,
+				"jailbreak_risk": secScan.JailbreakRisk,
+				"exfil_risk":     secScan.ExfilRisk,
+			})
+			return
+		}
+	}
 
 	targetURL := buildTargetURL(providerURL, r.URL.RequestURI())
 	upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(body))
@@ -224,7 +259,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		UserID:        userID,
 		SessionID:     sessionID,
 		FeatureName:   featureName,
-		AgentStep:     stepName, // kept for attribution retry-loop key
+		AgentStep:     stepName,
 		StepName:      stepName,
 		ParentStepID:  parentStepID,
 		ToolName:      toolName,
@@ -238,6 +273,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Response:      extractResponse(respBody),
 		SourceContext: sourceContext,
 		Timestamp:     start,
+		InjectionRisk:   secScan.InjectionRisk,
+		JailbreakRisk:   secScan.JailbreakRisk,
+		ExfilRisk:       secScan.ExfilRisk,
+		SecurityVerdict: secScan.Verdict,
 	}
 
 	// Fire-and-forget: never block the caller on event processing.

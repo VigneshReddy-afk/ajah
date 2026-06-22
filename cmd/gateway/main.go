@@ -25,6 +25,7 @@ import (
 	"github.com/ajah/core/internal/masking"
 	"github.com/ajah/core/internal/metrics"
 	"github.com/ajah/core/internal/proxy"
+	"github.com/ajah/core/internal/security"
 	"github.com/ajah/core/internal/sessions"
 	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
@@ -628,8 +629,11 @@ func run() error {
 	// 10. Prometheus metrics registration -------------------------------------
 	metrics.Register()
 
-	// 10b. Proxy handler -------------------------------------------------------
-	proxyHandler := proxy.New(cfg, emitter, logger, rdb)
+	// 10b. Security detector (prompt injection / jailbreak / exfiltration) -----
+	securityDetector := security.New(0.7)
+
+	// 10c. Proxy handler -------------------------------------------------------
+	proxyHandler := proxy.New(cfg, emitter, logger, rdb, securityDetector)
 
 	// 11. Router ---------------------------------------------------------------
 	r := chi.NewRouter()

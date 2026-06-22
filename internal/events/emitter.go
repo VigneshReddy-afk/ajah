@@ -30,6 +30,11 @@ type RequestEvent struct {
 	Response      string
 	SourceContext string // raw base64-encoded source document; empty if not provided
 	Timestamp     time.Time
+	// Security scan results (set by proxy before forwarding)
+	InjectionRisk   float64
+	JailbreakRisk   float64
+	ExfilRisk       float64
+	SecurityVerdict string
 }
 
 // ProcessFn is called by each worker goroutine for every dequeued event.

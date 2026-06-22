@@ -43,6 +43,10 @@ type TraceRecord struct {
 	RAGContradictionScore float64
 	CrossModelVerdict     string
 	CrossModelAgreement   float64
+	InjectionRisk         float64
+	JailbreakRisk         float64
+	ExfilRisk             float64
+	SecurityVerdict       string
 }
 
 // Writer holds a ClickHouse connection and exposes write operations.
@@ -81,7 +85,11 @@ CREATE TABLE IF NOT EXISTS traces (
     rag_grounding_score     Float64,
     rag_contradiction_score Float64,
     cross_model_verdict     String,
-    cross_model_agreement   Float64
+    cross_model_agreement   Float64,
+    injection_risk          Float64,
+    jailbreak_risk          Float64,
+    exfil_risk              Float64,
+    security_verdict        String
 ) ENGINE = MergeTree()
 ORDER BY (timestamp, user_id, feature_name)
 `
@@ -101,7 +109,11 @@ ALTER TABLE traces
     ADD COLUMN IF NOT EXISTS rag_grounding_score    Float64 DEFAULT 0,
     ADD COLUMN IF NOT EXISTS rag_contradiction_score Float64 DEFAULT 0,
     ADD COLUMN IF NOT EXISTS cross_model_verdict    String  DEFAULT '',
-    ADD COLUMN IF NOT EXISTS cross_model_agreement  Float64 DEFAULT 0
+    ADD COLUMN IF NOT EXISTS cross_model_agreement  Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS injection_risk         Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS jailbreak_risk         Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS exfil_risk             Float64 DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS security_verdict       String  DEFAULT 'clean'
 `
 
 // New opens a ClickHouse connection using dsn and pings the server to verify
@@ -166,7 +178,8 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 		parent_step_id, step_name, tool_name,
 		hallucination_risk, grounding_score, risk_level, should_warn,
 		rag_verdict, rag_grounding_score, rag_contradiction_score,
-		cross_model_verdict, cross_model_agreement
+		cross_model_verdict, cross_model_agreement,
+		injection_risk, jailbreak_risk, exfil_risk, security_verdict
 	)`)
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -203,6 +216,10 @@ func (w *Writer) BatchWrite(ctx context.Context, records []TraceRecord) error {
 			r.RAGContradictionScore,
 			r.CrossModelVerdict,
 			r.CrossModelAgreement,
+			r.InjectionRisk,
+			r.JailbreakRisk,
+			r.ExfilRisk,
+			r.SecurityVerdict,
 		); err != nil {
 			return fmt.Errorf("append record %q: %w", r.TraceID, err)
 		}
@@ -227,7 +244,8 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 		       parent_step_id, step_name, tool_name,
 		       hallucination_risk, grounding_score, risk_level, should_warn,
 		       rag_verdict, rag_grounding_score, rag_contradiction_score,
-		       cross_model_verdict, cross_model_agreement
+		       cross_model_verdict, cross_model_agreement,
+		       injection_risk, jailbreak_risk, exfil_risk, security_verdict
 		FROM traces
 		ORDER BY timestamp DESC
 		LIMIT %d`, limit))
@@ -255,6 +273,7 @@ func (w *Writer) QueryRecent(ctx context.Context, limit int) ([]TraceRecord, err
 			&r.HallucinationRisk, &r.GroundingScore, &r.RiskLevel, &shouldWarn,
 			&r.RAGVerdict, &r.RAGGroundingScore, &r.RAGContradictionScore,
 			&r.CrossModelVerdict, &r.CrossModelAgreement,
+			&r.InjectionRisk, &r.JailbreakRisk, &r.ExfilRisk, &r.SecurityVerdict,
 		); err != nil {
 			return nil, fmt.Errorf("scan trace: %w", err)
 		}
@@ -291,7 +310,9 @@ func (w *Writer) QueryByRequestID(ctx context.Context, requestID string) (*Trace
 			rag_grounding_score,
 			rag_contradiction_score,
 			cross_model_verdict,
-			cross_model_agreement
+			cross_model_agreement,
+			injection_risk, jailbreak_risk,
+			exfil_risk, security_verdict
 		FROM traces
 		WHERE request_id = ?
 		LIMIT 1`, requestID)
@@ -327,6 +348,8 @@ func (w *Writer) QueryByRequestID(ctx context.Context, requestID string) (*Trace
 		&r.RAGContradictionScore,
 		&r.CrossModelVerdict,
 		&r.CrossModelAgreement,
+		&r.InjectionRisk, &r.JailbreakRisk,
+		&r.ExfilRisk, &r.SecurityVerdict,
 	); err != nil {
 		return nil, err
 	}
