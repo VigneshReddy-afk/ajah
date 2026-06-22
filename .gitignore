@@ -33,3 +33,16 @@ __pycache__/
 
 # TypeScript
 *.tsbuildinfo
+
+# Node (local Playwright verification tooling, not project source)
+node_modules/
+package.json
+package-lock.json
+
+# Python packaging
+*.egg-info/
+dist/
+
+# Local verification artifacts
+verify_*.png
+verify_*.js
