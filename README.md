@@ -501,6 +501,6 @@ Ajah is open source under the MIT license. PRs welcome.
 [![MIT License](https://img.shields.io/badge/License-MIT-22c55e?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-185FA5?style=flat-square)](https://github.com/VigneshReddy-afk/ajah/pulls)
 
-**No data leaves your server. Ever.**
+*No data leaves your server. Ever.*
 
 </div>
