@@ -676,6 +676,17 @@ func run() error {
 	r.Get("/traces/{requestID}", traceByIDHandler(writer, logger))
 	r.Post("/traces/{requestID}/replay", replayHandler(writer, cfg, logger))
 
+	// Eval framework
+	r.Get("/evals", listEvalSuitesHandler(dbStore, logger))
+	r.Post("/evals", createEvalSuiteHandler(dbStore, logger))
+	r.Delete("/evals/{suiteID}", deleteEvalSuiteHandler(dbStore, logger))
+	r.Get("/evals/{suiteID}/cases", listEvalCasesHandler(dbStore, logger))
+	r.Post("/evals/{suiteID}/cases", createEvalCaseHandler(dbStore, logger))
+	r.Delete("/evals/{suiteID}/cases/{caseID}", deleteEvalCaseHandler(dbStore, logger))
+	r.Post("/evals/{suiteID}/run", runEvalSuiteHandler(dbStore, cfg.ScorerURL, logger))
+	r.Get("/evals/{suiteID}/runs", listEvalRunsHandler(dbStore, logger))
+	r.Get("/evals/runs/{runID}", getEvalRunHandler(dbStore, logger))
+
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
