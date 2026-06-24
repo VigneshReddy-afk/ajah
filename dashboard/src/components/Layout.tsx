@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   IconLayoutDashboard,
@@ -10,9 +10,10 @@ import {
   IconSettings,
   IconGitBranch,
   IconTestPipe,
+  IconLogout,
 } from '@tabler/icons-react'
 import { format } from 'date-fns'
-import { fetchJSON } from '../api/client'
+import { fetchJSON, clearAuth, getStoredUser } from '../api/client'
 import type { SessionsResponse, WarningsResponse } from '../api/types'
 
 const nav = [
@@ -41,6 +42,7 @@ type TextSize = 'small' | 'medium' | 'large'
 
 export default function Layout() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [hovered, setHovered] = useState<string | null>(null)
 
   const [textSize, setTextSize] = useState<TextSize>(() =>
@@ -171,8 +173,23 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Footer */}
-        <div style={{ padding: '12px 14px', borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+        {/* Footer — user + logout */}
+        <div style={{ padding: '10px 14px', borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+              {getStoredUser()?.email ?? '—'}
+            </span>
+            <button
+              onClick={() => { clearAuth(); navigate('/login') }}
+              title="Sign out"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-tertiary)', padding: 2, display: 'flex', alignItems: 'center',
+              }}
+            >
+              <IconLogout size={14} strokeWidth={1.75} />
+            </button>
+          </div>
           <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>v0.1.0 · MIT license</span>
         </div>
       </aside>
