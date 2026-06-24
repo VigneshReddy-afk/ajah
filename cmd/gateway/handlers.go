@@ -87,26 +87,26 @@ func rateLimitMiddleware(
 
 // traceResponse is the JSON shape returned by GET /metrics/traces.
 type traceResponse struct {
-	TraceID           string    `json:"trace_id"`
-	RequestID         string    `json:"request_id"`
-	UserID            string    `json:"user_id"`
-	SessionID         string    `json:"session_id"`
-	FeatureName       string    `json:"feature_name"`
-	AgentStep         string    `json:"agent_step"`
-	ParentStepID      string    `json:"parent_step_id"`
-	StepName          string    `json:"step_name"`
-	ToolName          string    `json:"tool_name"`
-	Provider          string    `json:"provider"`
-	Model             string    `json:"model"`
-	InputTokens       int       `json:"input_tokens"`
-	OutputTokens      int       `json:"output_tokens"`
-	CostUSD           float64   `json:"cost_usd"`
-	LatencyMs         int64     `json:"latency_ms"`
-	StatusCode        int       `json:"status_code"`
-	MaskedPrompt      string    `json:"masked_prompt"`
-	WasPIIMasked      bool      `json:"was_pii_masked"`
-	QualityScore      float64   `json:"quality_score"`
-	Timestamp         time.Time `json:"timestamp"`
+	TraceID             string    `json:"trace_id"`
+	RequestID           string    `json:"request_id"`
+	UserID              string    `json:"user_id"`
+	SessionID           string    `json:"session_id"`
+	FeatureName         string    `json:"feature_name"`
+	AgentStep           string    `json:"agent_step"`
+	ParentStepID        string    `json:"parent_step_id"`
+	StepName            string    `json:"step_name"`
+	ToolName            string    `json:"tool_name"`
+	Provider            string    `json:"provider"`
+	Model               string    `json:"model"`
+	InputTokens         int       `json:"input_tokens"`
+	OutputTokens        int       `json:"output_tokens"`
+	CostUSD             float64   `json:"cost_usd"`
+	LatencyMs           int64     `json:"latency_ms"`
+	StatusCode          int       `json:"status_code"`
+	MaskedPrompt        string    `json:"masked_prompt"`
+	WasPIIMasked        bool      `json:"was_pii_masked"`
+	QualityScore        float64   `json:"quality_score"`
+	Timestamp           time.Time `json:"timestamp"`
 	HallucinationRisk   float64   `json:"hallucination_risk"`
 	GroundingScore      float64   `json:"grounding_score"`
 	RiskLevel           string    `json:"risk_level"`
@@ -150,26 +150,26 @@ func tracesHandler(writer *storage.Writer, logger *zap.Logger) http.HandlerFunc 
 		resp := make([]traceResponse, len(records))
 		for i, rec := range records {
 			resp[i] = traceResponse{
-				TraceID:           rec.TraceID,
-				RequestID:         rec.RequestID,
-				UserID:            rec.UserID,
-				SessionID:         rec.SessionID,
-				FeatureName:       rec.FeatureName,
-				AgentStep:         rec.AgentStep,
-				ParentStepID:      rec.ParentStepID,
-				StepName:          rec.StepName,
-				ToolName:          rec.ToolName,
-				Provider:          rec.Provider,
-				Model:             rec.Model,
-				InputTokens:       rec.InputTokens,
-				OutputTokens:      rec.OutputTokens,
-				CostUSD:           rec.CostUSD,
-				LatencyMs:         rec.LatencyMs,
-				StatusCode:        rec.StatusCode,
-				MaskedPrompt:      rec.MaskedPrompt,
-				WasPIIMasked:      rec.WasPIIMasked,
-				QualityScore:      rec.QualityScore,
-				Timestamp:         rec.Timestamp,
+				TraceID:             rec.TraceID,
+				RequestID:           rec.RequestID,
+				UserID:              rec.UserID,
+				SessionID:           rec.SessionID,
+				FeatureName:         rec.FeatureName,
+				AgentStep:           rec.AgentStep,
+				ParentStepID:        rec.ParentStepID,
+				StepName:            rec.StepName,
+				ToolName:            rec.ToolName,
+				Provider:            rec.Provider,
+				Model:               rec.Model,
+				InputTokens:         rec.InputTokens,
+				OutputTokens:        rec.OutputTokens,
+				CostUSD:             rec.CostUSD,
+				LatencyMs:           rec.LatencyMs,
+				StatusCode:          rec.StatusCode,
+				MaskedPrompt:        rec.MaskedPrompt,
+				WasPIIMasked:        rec.WasPIIMasked,
+				QualityScore:        rec.QualityScore,
+				Timestamp:           rec.Timestamp,
 				HallucinationRisk:   rec.HallucinationRisk,
 				GroundingScore:      rec.GroundingScore,
 				RiskLevel:           rec.RiskLevel,
@@ -571,26 +571,26 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 		traces := make([]traceResponse, len(traceRecs))
 		for i, t := range traceRecs {
 			traces[i] = traceResponse{
-				TraceID:           t.TraceID,
-				RequestID:         t.RequestID,
-				UserID:            t.UserID,
-				SessionID:         t.SessionID,
-				FeatureName:       t.FeatureName,
-				AgentStep:         t.AgentStep,
-				ParentStepID:      t.ParentStepID,
-				StepName:          t.StepName,
-				ToolName:          t.ToolName,
-				Provider:          t.Provider,
-				Model:             t.Model,
-				InputTokens:       t.InputTokens,
-				OutputTokens:      t.OutputTokens,
-				CostUSD:           t.CostUSD,
-				LatencyMs:         t.LatencyMs,
-				StatusCode:        t.StatusCode,
-				MaskedPrompt:      t.MaskedPrompt,
-				WasPIIMasked:      t.WasPIIMasked,
-				QualityScore:      t.QualityScore,
-				Timestamp:         t.Timestamp,
+				TraceID:             t.TraceID,
+				RequestID:           t.RequestID,
+				UserID:              t.UserID,
+				SessionID:           t.SessionID,
+				FeatureName:         t.FeatureName,
+				AgentStep:           t.AgentStep,
+				ParentStepID:        t.ParentStepID,
+				StepName:            t.StepName,
+				ToolName:            t.ToolName,
+				Provider:            t.Provider,
+				Model:               t.Model,
+				InputTokens:         t.InputTokens,
+				OutputTokens:        t.OutputTokens,
+				CostUSD:             t.CostUSD,
+				LatencyMs:           t.LatencyMs,
+				StatusCode:          t.StatusCode,
+				MaskedPrompt:        t.MaskedPrompt,
+				WasPIIMasked:        t.WasPIIMasked,
+				QualityScore:        t.QualityScore,
+				Timestamp:           t.Timestamp,
 				HallucinationRisk:   t.HallucinationRisk,
 				GroundingScore:      t.GroundingScore,
 				RiskLevel:           t.RiskLevel,
@@ -938,5 +938,382 @@ func compareHandler(
 			"models":      req.Models,
 			"compared_at": time.Now().UTC(),
 		})
+	}
+}
+
+// ── Eval handlers ─────────────────────────────────────────────────────────────
+
+// evalID generates a short hex ID from the current nanosecond timestamp.
+func evalID() string {
+	return fmt.Sprintf("%x", time.Now().UnixNano())
+}
+
+// listEvalSuitesHandler — GET /evals
+func listEvalSuitesHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		suites, err := store.ListEvalSuites(r.Context())
+		if err != nil {
+			logger.Error("list eval suites", zap.Error(err))
+			http.Error(w, "failed to list suites", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"suites": suites})
+	}
+}
+
+// createEvalSuiteHandler — POST /evals
+func createEvalSuiteHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Name          string  `json:"name"`
+			Description   string  `json:"description"`
+			PassThreshold float64 `json:"pass_threshold"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" {
+			http.Error(w, "name is required", http.StatusBadRequest)
+			return
+		}
+		if req.PassThreshold == 0 {
+			req.PassThreshold = 0.7
+		}
+		suite := db.EvalSuite{
+			ID:            evalID(),
+			Name:          req.Name,
+			Description:   req.Description,
+			PassThreshold: req.PassThreshold,
+		}
+		if err := store.CreateEvalSuite(r.Context(), suite); err != nil {
+			logger.Error("create eval suite", zap.Error(err))
+			http.Error(w, "failed to create suite", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(suite)
+	}
+}
+
+// deleteEvalSuiteHandler — DELETE /evals/{suiteID}
+func deleteEvalSuiteHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "suiteID")
+		if err := store.DeleteEvalSuite(r.Context(), id); err != nil {
+			logger.Error("delete eval suite", zap.Error(err))
+			http.Error(w, "failed to delete suite", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+}
+
+// listEvalCasesHandler — GET /evals/{suiteID}/cases
+func listEvalCasesHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		suiteID := chi.URLParam(r, "suiteID")
+		cases, err := store.ListEvalCases(r.Context(), suiteID)
+		if err != nil {
+			logger.Error("list eval cases", zap.Error(err))
+			http.Error(w, "failed to list cases", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"cases": cases})
+	}
+}
+
+// createEvalCaseHandler — POST /evals/{suiteID}/cases
+func createEvalCaseHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		suiteID := chi.URLParam(r, "suiteID")
+		var req struct {
+			Prompt         string `json:"prompt"`
+			ExpectedOutput string `json:"expected_output"`
+			Tags           string `json:"tags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.Prompt == "" {
+			http.Error(w, "prompt is required", http.StatusBadRequest)
+			return
+		}
+		c := db.EvalCase{
+			ID:             evalID(),
+			SuiteID:        suiteID,
+			Prompt:         req.Prompt,
+			ExpectedOutput: req.ExpectedOutput,
+			Tags:           req.Tags,
+		}
+		if err := store.CreateEvalCase(r.Context(), c); err != nil {
+			logger.Error("create eval case", zap.Error(err))
+			http.Error(w, "failed to create case", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(c)
+	}
+}
+
+// deleteEvalCaseHandler — DELETE /evals/{suiteID}/cases/{caseID}
+func deleteEvalCaseHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "caseID")
+		if err := store.DeleteEvalCase(r.Context(), id); err != nil {
+			logger.Error("delete eval case", zap.Error(err))
+			http.Error(w, "failed to delete case", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+}
+
+// runEvalSuiteHandler — POST /evals/{suiteID}/run
+// Fetches all cases, sends each prompt through the LLM API key configured in
+// the request body, scores via the scorer, and persists results.
+func runEvalSuiteHandler(store *db.Store, scorerURL string, logger *zap.Logger) http.HandlerFunc {
+	type runReq struct {
+		APIKey  string `json:"api_key"`
+		Model   string `json:"model"`
+		BaseURL string `json:"base_url"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		suiteID := chi.URLParam(r, "suiteID")
+
+		var req runReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.APIKey == "" || req.Model == "" {
+			http.Error(w, "api_key and model are required", http.StatusBadRequest)
+			return
+		}
+		if req.BaseURL == "" {
+			req.BaseURL = "https://api.openai.com/v1"
+		}
+
+		suite, err := store.GetEvalSuite(r.Context(), suiteID)
+		if err != nil || suite == nil {
+			http.Error(w, "suite not found", http.StatusNotFound)
+			return
+		}
+
+		cases, err := store.ListEvalCases(r.Context(), suiteID)
+		if err != nil || len(cases) == 0 {
+			http.Error(w, "no cases in suite", http.StatusBadRequest)
+			return
+		}
+
+		runID := evalID()
+		run := db.EvalRun{
+			ID:      runID,
+			SuiteID: suiteID,
+			Model:   req.Model,
+		}
+		if err := store.CreateEvalRun(r.Context(), run); err != nil {
+			logger.Error("create eval run", zap.Error(err))
+			http.Error(w, "failed to create run", http.StatusInternalServerError)
+			return
+		}
+
+		client := &http.Client{Timeout: 60 * time.Second}
+		scorerClient := &http.Client{Timeout: 45 * time.Second}
+
+		var (
+			mu        sync.Mutex
+			passCount int
+			failCount int
+			totalQ    float64
+			totalLat  float64
+			totalCost float64
+			results   []db.EvalResult
+		)
+
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 3) // max 3 concurrent LLM calls
+
+		for _, c := range cases {
+			wg.Add(1)
+			go func(ec db.EvalCase) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				start := time.Now()
+
+				// Call LLM
+				payload, _ := json.Marshal(map[string]interface{}{
+					"model": req.Model,
+					"messages": []map[string]string{
+						{"role": "user", "content": ec.Prompt},
+					},
+					"max_tokens": 1024,
+				})
+				llmReq, _ := http.NewRequestWithContext(r.Context(), "POST",
+					req.BaseURL+"/chat/completions", bytes.NewReader(payload))
+				llmReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+				llmReq.Header.Set("Content-Type", "application/json")
+
+				latencyMs := 0
+				actualOutput := ""
+				costUSD := 0.0
+
+				llmResp, llmErr := client.Do(llmReq)
+				if llmErr == nil {
+					latencyMs = int(time.Since(start).Milliseconds())
+					defer llmResp.Body.Close()
+					body, _ := io.ReadAll(llmResp.Body)
+					var parsed struct {
+						Choices []struct {
+							Message struct {
+								Content string `json:"content"`
+							} `json:"message"`
+						} `json:"choices"`
+						Usage struct {
+							PromptTokens     int `json:"prompt_tokens"`
+							CompletionTokens int `json:"completion_tokens"`
+						} `json:"usage"`
+					}
+					if json.Unmarshal(body, &parsed) == nil && len(parsed.Choices) > 0 {
+						actualOutput = parsed.Choices[0].Message.Content
+						// rough cost estimate at gpt-4o rates
+						costUSD = float64(parsed.Usage.PromptTokens)*0.0000025 +
+							float64(parsed.Usage.CompletionTokens)*0.00001
+					}
+				}
+
+				// Score via scorer
+				qualityScore := 0.0
+				hallucinationRisk := 0.5
+				if actualOutput != "" {
+					scorePayload, _ := json.Marshal(map[string]interface{}{
+						"request_id": runID + "_" + ec.ID,
+						"prompt":     ec.Prompt,
+						"response":   actualOutput,
+					})
+					scoreReq, _ := http.NewRequestWithContext(r.Context(), "POST",
+						scorerURL+"/score", bytes.NewReader(scorePayload))
+					scoreReq.Header.Set("Content-Type", "application/json")
+					if scoreResp, scoreErr := scorerClient.Do(scoreReq); scoreErr == nil {
+						defer scoreResp.Body.Close()
+						scoreBody, _ := io.ReadAll(scoreResp.Body)
+						var scored struct {
+							OverallQualityScore float64 `json:"overall_quality_score"`
+							HallucinationScore  float64 `json:"hallucination_score"`
+						}
+						if json.Unmarshal(scoreBody, &scored) == nil {
+							qualityScore = scored.OverallQualityScore
+							hallucinationRisk = scored.HallucinationScore
+						}
+					}
+				}
+
+				passed := qualityScore >= suite.PassThreshold && hallucinationRisk <= 0.4
+
+				res := db.EvalResult{
+					ID:                evalID(),
+					RunID:             runID,
+					CaseID:            ec.ID,
+					ActualOutput:      actualOutput,
+					QualityScore:      qualityScore,
+					HallucinationRisk: hallucinationRisk,
+					Passed:            passed,
+					LatencyMs:         latencyMs,
+					CostUSD:           costUSD,
+				}
+				_ = store.CreateEvalResult(r.Context(), res)
+
+				mu.Lock()
+				results = append(results, res)
+				if passed {
+					passCount++
+				} else {
+					failCount++
+				}
+				totalQ += qualityScore
+				totalLat += float64(latencyMs)
+				totalCost += costUSD
+				mu.Unlock()
+			}(c)
+		}
+
+		wg.Wait()
+
+		n := len(cases)
+		avgQ, avgLat, avgCost := 0.0, 0.0, 0.0
+		if n > 0 {
+			avgQ = totalQ / float64(n)
+			avgLat = totalLat / float64(n)
+			avgCost = totalCost / float64(n)
+		}
+
+		finalRun := db.EvalRun{
+			ID:           runID,
+			SuiteID:      suiteID,
+			Model:        req.Model,
+			PassCount:    passCount,
+			FailCount:    failCount,
+			AvgQuality:   avgQ,
+			AvgLatencyMs: avgLat,
+			AvgCostUSD:   avgCost,
+		}
+		_ = store.UpdateEvalRun(r.Context(), finalRun)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"run_id":      runID,
+			"pass_count":  passCount,
+			"fail_count":  failCount,
+			"avg_quality": avgQ,
+			"results":     results,
+		})
+	}
+}
+
+// getEvalRunHandler — GET /evals/runs/{runID}
+func getEvalRunHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := chi.URLParam(r, "runID")
+		run, err := store.GetEvalRun(r.Context(), runID)
+		if err != nil || run == nil {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+		results, err := store.ListEvalResults(r.Context(), runID)
+		if err != nil {
+			logger.Error("list eval results", zap.Error(err))
+			http.Error(w, "failed to load results", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"run":     run,
+			"results": results,
+		})
+	}
+}
+
+// listEvalRunsHandler — GET /evals/{suiteID}/runs
+func listEvalRunsHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		suiteID := chi.URLParam(r, "suiteID")
+		runs, err := store.ListEvalRuns(r.Context(), suiteID)
+		if err != nil {
+			logger.Error("list eval runs", zap.Error(err))
+			http.Error(w, "failed to list runs", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"runs": runs})
 	}
 }
