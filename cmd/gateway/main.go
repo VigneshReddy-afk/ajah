@@ -687,6 +687,13 @@ func run() error {
 	r.Get("/evals/{suiteID}/runs", listEvalRunsHandler(dbStore, logger))
 	r.Get("/evals/runs/{runID}", getEvalRunHandler(dbStore, logger))
 
+	// Auth — public routes (no token required)
+	r.Post("/auth/register", registerHandler(dbStore, logger))
+	r.Post("/auth/login", loginHandler(dbStore, logger))
+	r.Post("/auth/logout", logoutHandler(dbStore, logger))
+	r.Get("/auth/me", meHandler(dbStore, logger))
+	r.Get("/auth/team", listTeamHandler(dbStore, logger))
+
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
