@@ -9,6 +9,9 @@ import Warnings from './pages/Warnings'
 import Alerts from './pages/Alerts'
 import Settings from './pages/Settings'
 import Evals from './pages/Evals'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import { isAuthenticated } from './api/client'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,12 +23,28 @@ const queryClient = new QueryClient({
   },
 })
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />
+  }
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Layout />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <Layout />
+              </RequireAuth>
+            }
+          >
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="overview" element={<Overview />} />
             <Route path="traces" element={<Traces />} />
