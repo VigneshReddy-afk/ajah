@@ -84,6 +84,10 @@ export interface WarningItem {
   hedge_risk?: number
   drift_risk?: number
   drift_verdict?: string
+  injection_risk?: number
+  jailbreak_risk?: number
+  exfil_risk?: number
+  security_verdict?: string
 }
 
 export interface WarningsResponse {
