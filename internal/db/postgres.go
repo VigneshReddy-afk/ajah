@@ -196,6 +196,40 @@ func (s *Store) CreateTables(ctx context.Context) error {
 		return fmt.Errorf("create eval_results table: %w", err)
 	}
 
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS orgs (
+			id         TEXT PRIMARY KEY,
+			name       TEXT NOT NULL,
+			slug       TEXT NOT NULL UNIQUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("create orgs table: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS users (
+			id            TEXT PRIMARY KEY,
+			org_id        TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+			email         TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			role          TEXT NOT NULL DEFAULT 'member',
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("create users table: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS auth_sessions (
+			id          TEXT PRIMARY KEY,
+			user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			org_id      TEXT NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+			token_hash  TEXT NOT NULL UNIQUE,
+			expires_at  TIMESTAMPTZ NOT NULL,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("create auth_sessions table: %w", err)
+	}
+
 	return nil
 }
 
@@ -748,4 +782,184 @@ func (s *Store) ListEvalResults(ctx context.Context, runID string) ([]EvalResult
 		out = []EvalResult{}
 	}
 	return out, rows.Err()
+}
+
+// ── Auth types ────────────────────────────────────────────────────────────────
+
+// Org is a tenant organisation.
+type Org struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// User is a member of an Org.
+type User struct {
+	ID           string    `json:"id"`
+	OrgID        string    `json:"org_id"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// AuthSession is a logged-in session.
+type AuthSession struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	OrgID     string    `json:"org_id"`
+	TokenHash string    `json:"-"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ── Auth methods ──────────────────────────────────────────────────────────────
+
+// CreateOrg inserts a new org row.
+func (s *Store) CreateOrg(ctx context.Context, org Org) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO orgs (id, name, slug, created_at) VALUES ($1, $2, $3, NOW())`,
+		org.ID, org.Name, org.Slug,
+	)
+	return err
+}
+
+// OrgBySlug returns the org with the given slug, or nil if not found.
+func (s *Store) OrgBySlug(ctx context.Context, slug string) (*Org, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, slug, created_at FROM orgs WHERE slug = $1`, slug)
+	var o Org
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
+}
+
+// CreateUser inserts a new user row.
+func (s *Store) CreateUser(ctx context.Context, u User) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO users (id, org_id, email, password_hash, role, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())`,
+		u.ID, u.OrgID, u.Email, u.PasswordHash, u.Role,
+	)
+	return err
+}
+
+// UserByEmail returns the user with the given email, or nil if not found.
+func (s *Store) UserByEmail(ctx context.Context, email string) (*User, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, org_id, email, password_hash, role, created_at
+		 FROM users WHERE email = $1`, email)
+	var u User
+	if err := row.Scan(&u.ID, &u.OrgID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// UserByID returns the user with the given ID, or nil if not found.
+func (s *Store) UserByID(ctx context.Context, id string) (*User, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, org_id, email, password_hash, role, created_at
+		 FROM users WHERE id = $1`, id)
+	var u User
+	if err := row.Scan(&u.ID, &u.OrgID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// ListOrgUsers returns all users in an org.
+func (s *Store) ListOrgUsers(ctx context.Context, orgID string) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, org_id, email, password_hash, role, created_at
+		 FROM users WHERE org_id = $1 ORDER BY created_at ASC`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	if out == nil {
+		out = []User{}
+	}
+	return out, rows.Err()
+}
+
+// CreateAuthSession inserts a new session row.
+func (s *Store) CreateAuthSession(ctx context.Context, sess AuthSession) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO auth_sessions (id, user_id, org_id, token_hash, expires_at, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())`,
+		sess.ID, sess.UserID, sess.OrgID, sess.TokenHash, sess.ExpiresAt,
+	)
+	return err
+}
+
+// SessionByTokenHash returns session+user info for a token hash, or nil if not found.
+func (s *Store) SessionByTokenHash(ctx context.Context, tokenHash string) (*AuthSession, *User, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT s.id, s.user_id, s.org_id, s.token_hash, s.expires_at, s.created_at,
+		       u.email, u.role
+		FROM auth_sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.token_hash = $1
+	`, tokenHash)
+	var sess AuthSession
+	var email, role string
+	if err := row.Scan(
+		&sess.ID, &sess.UserID, &sess.OrgID, &sess.TokenHash, &sess.ExpiresAt, &sess.CreatedAt,
+		&email, &role,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	u := &User{ID: sess.UserID, OrgID: sess.OrgID, Email: email, Role: role}
+	return &sess, u, nil
+}
+
+// DeleteAuthSession removes a session by its token hash (logout).
+func (s *Store) DeleteAuthSession(ctx context.Context, tokenHash string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM auth_sessions WHERE token_hash = $1`, tokenHash)
+	return err
+}
+
+// DeleteExpiredSessions removes all sessions past their expiry — call periodically.
+func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM auth_sessions WHERE expires_at < NOW()`)
+	return err
+}
+
+// OrgByID returns the org with the given ID, or nil if not found.
+func (s *Store) OrgByID(ctx context.Context, id string) (*Org, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, slug, created_at FROM orgs WHERE id = $1`, id)
+	var o Org
+	if err := row.Scan(&o.ID, &o.Name, &o.Slug, &o.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &o, nil
 }
