@@ -9,6 +9,7 @@ import {
   IconBell,
   IconSettings,
   IconGitBranch,
+  IconTestPipe,
 } from '@tabler/icons-react'
 import { format } from 'date-fns'
 import { fetchJSON } from '../api/client'
@@ -21,6 +22,7 @@ const nav = [
   { path: '/sessions',  label: 'Sessions',  Icon: IconGitBranch },
   { path: '/warnings',  label: 'Warnings',  Icon: IconAlertHexagon },
   { path: '/alerts',    label: 'Alerts',    Icon: IconBell },
+  { path: '/evals',     label: 'Evals',     Icon: IconTestPipe },
   { path: '/settings',  label: 'Settings',  Icon: IconSettings },
 ]
 
@@ -31,6 +33,7 @@ const PAGE_META: Record<string, { title: string; badge?: string }> = {
   '/sessions': { title: 'Sessions' },
   '/warnings': { title: 'Warnings' },
   '/alerts':   { title: 'Alerts' },
+  '/evals':    { title: 'Evals',     badge: 'Beta' },
   '/settings': { title: 'Settings' },
 }
 

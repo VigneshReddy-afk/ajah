@@ -8,6 +8,7 @@ import Sessions from './pages/Sessions'
 import Warnings from './pages/Warnings'
 import Alerts from './pages/Alerts'
 import Settings from './pages/Settings'
+import Evals from './pages/Evals'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="warnings" element={<Warnings />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="evals" element={<Evals />} />
           </Route>
         </Routes>
       </BrowserRouter>
