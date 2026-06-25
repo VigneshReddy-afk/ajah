@@ -38,6 +38,12 @@ type Config struct {
 	OTelEndpoint           string
 	CacheEnabled           bool
 	CacheTTLSeconds        int
+	// Self-healing fallback provider — optional.
+	// If set, the gateway retries failed primary requests against this provider.
+	FallbackModel        string // FALLBACK_MODEL e.g. "gpt-4o-mini"
+	FallbackProviderURL  string // FALLBACK_PROVIDER_URL e.g. "https://api.openai.com/v1"
+	FallbackAPIKey       string // FALLBACK_API_KEY
+	SecurityBlockEnabled bool   // SECURITY_BLOCK_ENABLED
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -116,6 +122,12 @@ func Load() (*Config, error) {
 	if cfg.CacheTTLSeconds == 0 {
 		cfg.CacheTTLSeconds = 3600
 	}
+
+	// Fallback provider — all three must be set to enable self-healing
+	cfg.FallbackModel = os.Getenv("FALLBACK_MODEL")
+	cfg.FallbackProviderURL = os.Getenv("FALLBACK_PROVIDER_URL")
+	cfg.FallbackAPIKey = os.Getenv("FALLBACK_API_KEY")
+	cfg.SecurityBlockEnabled = os.Getenv("SECURITY_BLOCK_ENABLED") == "true"
 
 	return cfg, nil
 }
