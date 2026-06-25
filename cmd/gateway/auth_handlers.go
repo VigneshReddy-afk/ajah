@@ -230,8 +230,30 @@ func logoutHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 }
 
 // meHandler — GET /auth/me
-func meHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+// When AUTH_ENABLED=false, returns a synthetic anonymous user so the dashboard
+// can detect auth-disabled mode without a token.
+func meHandler(store *db.Store, logger *zap.Logger, authEnabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Auth disabled — return anonymous user, dashboard skips login
+		if !authEnabled {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Ajah-Auth-Disabled", "true")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"auth_enabled": false,
+				"user": map[string]interface{}{
+					"id":    "anonymous",
+					"email": "self-hosted",
+					"role":  "owner",
+				},
+				"org": map[string]interface{}{
+					"id":   "local",
+					"name": "Self-hosted",
+					"slug": "self-hosted",
+				},
+			})
+			return
+		}
+
 		raw := r.Header.Get("Authorization")
 		token := strings.TrimPrefix(raw, "Bearer ")
 		if token == "" || token == raw {
@@ -258,6 +280,7 @@ func meHandler(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"auth_enabled": true,
 			"user": map[string]interface{}{"id": user.ID, "email": user.Email, "role": user.Role},
 			"org":  map[string]interface{}{"id": org.ID, "name": org.Name, "slug": org.Slug},
 		})

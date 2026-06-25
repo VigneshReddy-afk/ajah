@@ -748,7 +748,7 @@ func run() error {
 	r.Post("/auth/register", registerHandler(dbStore, logger))
 	r.Post("/auth/login", loginHandler(dbStore, logger))
 	r.Post("/auth/logout", logoutHandler(dbStore, logger))
-	r.Get("/auth/me", meHandler(dbStore, logger))
+	r.Get("/auth/me", meHandler(dbStore, logger, cfg.AuthEnabled))
 	r.Get("/auth/team", listTeamHandler(dbStore, logger))
 
 	// Fallback / self-healing status
