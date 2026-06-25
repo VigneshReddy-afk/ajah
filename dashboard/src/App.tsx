@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
 import Layout from './components/Layout'
 import Overview from './pages/Overview'
 import Traces from './pages/Traces'
@@ -12,7 +12,7 @@ import Settings from './pages/Settings'
 import Evals from './pages/Evals'
 import Login from './pages/Login'
 import Register from './pages/Register'
-import { checkAuthMode, isAuthenticated } from './api/client'
+import { isAuthenticated, checkAuthMode, isAuthDisabled } from './api/client'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,25 +35,45 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
 
   useEffect(() => {
-    checkAuthMode().finally(() => setAuthChecked(true))
+    checkAuthMode().then(() => setAuthChecked(true))
   }, [])
 
+  // Show nothing while checking auth mode — avoids flash of login page
   if (!authChecked) {
-    return null
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'var(--color-background-primary)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--color-text-tertiary)',
+        fontSize: 13,
+      }}>
+        Loading…
+      </div>
+    )
   }
 
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          {/* Auth pages — only reachable when auth is enabled */}
+          {!isAuthDisabled() && (
+            <>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+            </>
+          )}
           <Route
             path="/"
             element={
-              <RequireAuth>
-                <Layout />
-              </RequireAuth>
+              isAuthDisabled() ? <Layout /> : (
+                <RequireAuth>
+                  <Layout />
+                </RequireAuth>
+              )
             }
           >
             <Route index element={<Navigate to="/overview" replace />} />
@@ -66,6 +86,8 @@ export default function App() {
             <Route path="settings" element={<Settings />} />
             <Route path="evals" element={<Evals />} />
           </Route>
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/overview" replace />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
