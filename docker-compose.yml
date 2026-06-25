@@ -15,6 +15,7 @@ services:
       FALLBACK_MODEL: ${FALLBACK_MODEL}
       FALLBACK_PROVIDER_URL: ${FALLBACK_PROVIDER_URL}
       FALLBACK_API_KEY: ${FALLBACK_API_KEY}
+      AUTH_ENABLED: "false"
     dns:
       - 8.8.8.8
       - 8.8.4.4
