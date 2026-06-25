@@ -23,6 +23,9 @@ type FeatureSetting struct {
 	CrossModelModel       string  `json:"cross_model_model"`
 	RateLimitRPM          int     `json:"rate_limit_rpm"`
 	AlertEmailTo          string  `json:"alert_email_to"`
+	// Circuit breaker limits — 0 means disabled
+	MaxStepsPerSession int     `json:"max_steps_per_session"`
+	MaxCostPerSession  float64 `json:"max_cost_per_session"`
 }
 
 // SMTPConfig holds the SMTP server credentials used to send email alerts.
@@ -244,6 +247,8 @@ func (s *Store) MigrateTables(ctx context.Context) error {
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS cross_model_model TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS rate_limit_rpm INT NOT NULL DEFAULT 0`,
 		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS alert_email_to TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS max_steps_per_session INT NOT NULL DEFAULT 0`,
+		`ALTER TABLE feature_settings ADD COLUMN IF NOT EXISTS max_cost_per_session FLOAT8 NOT NULL DEFAULT 0`,
 	}
 	for _, m := range migrations {
 		if _, err := s.db.ExecContext(ctx, m); err != nil {
@@ -258,7 +263,7 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url,
 		       cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model,
-		       rate_limit_rpm, alert_email_to
+		       rate_limit_rpm, alert_email_to, max_steps_per_session, max_cost_per_session
 		FROM feature_settings ORDER BY feature_name`)
 	if err != nil {
 		return nil, fmt.Errorf("query settings: %w", err)
@@ -271,7 +276,7 @@ func (s *Store) GetSettings(ctx context.Context) ([]FeatureSetting, error) {
 		if err := rows.Scan(
 			&f.FeatureName, &f.CostAlertThresholdUSD, &f.PIIMaskingEnabled, &f.WebhookURL,
 			&f.CrossModelEnabled, &f.CrossModelProviderURL, &f.CrossModelAPIKey, &f.CrossModelModel,
-			&f.RateLimitRPM, &f.AlertEmailTo,
+			&f.RateLimitRPM, &f.AlertEmailTo, &f.MaxStepsPerSession, &f.MaxCostPerSession,
 		); err != nil {
 			return nil, fmt.Errorf("scan setting: %w", err)
 		}
@@ -287,8 +292,9 @@ func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 			feature_name, cost_alert_threshold_usd, pii_masking_enabled, webhook_url,
 			cross_model_enabled, cross_model_provider_url, cross_model_api_key, cross_model_model,
 			rate_limit_rpm, alert_email_to,
+			max_steps_per_session, max_cost_per_session,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
 		ON CONFLICT (feature_name) DO UPDATE SET
 			cost_alert_threshold_usd = EXCLUDED.cost_alert_threshold_usd,
 			pii_masking_enabled      = EXCLUDED.pii_masking_enabled,
@@ -299,10 +305,12 @@ func (s *Store) UpsertSetting(ctx context.Context, f FeatureSetting) error {
 			cross_model_model        = EXCLUDED.cross_model_model,
 			rate_limit_rpm           = EXCLUDED.rate_limit_rpm,
 			alert_email_to           = EXCLUDED.alert_email_to,
+			max_steps_per_session    = EXCLUDED.max_steps_per_session,
+			max_cost_per_session     = EXCLUDED.max_cost_per_session,
 			updated_at               = NOW()`,
 		f.FeatureName, f.CostAlertThresholdUSD, f.PIIMaskingEnabled, f.WebhookURL,
 		f.CrossModelEnabled, f.CrossModelProviderURL, f.CrossModelAPIKey, f.CrossModelModel,
-		f.RateLimitRPM, f.AlertEmailTo)
+		f.RateLimitRPM, f.AlertEmailTo, f.MaxStepsPerSession, f.MaxCostPerSession)
 	if err != nil {
 		return fmt.Errorf("upsert setting %q: %w", f.FeatureName, err)
 	}
