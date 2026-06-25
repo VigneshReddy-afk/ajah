@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Layout from './components/Layout'
@@ -11,7 +12,7 @@ import Settings from './pages/Settings'
 import Evals from './pages/Evals'
 import Login from './pages/Login'
 import Register from './pages/Register'
-import { isAuthenticated } from './api/client'
+import { checkAuthMode, isAuthenticated } from './api/client'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,6 +32,16 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const [authChecked, setAuthChecked] = useState(false)
+
+  useEffect(() => {
+    checkAuthMode().finally(() => setAuthChecked(true))
+  }, [])
+
+  if (!authChecked) {
+    return null
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
