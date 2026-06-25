@@ -14,7 +14,6 @@ import (
 
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/db"
-	"github.com/ajah/core/internal/fallback"
 	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
@@ -708,22 +707,38 @@ func anomaliesHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
 	}
 }
 
-// fallbackProviders lists every provider the proxy handler can route to —
-// kept in sync with the providerURLs map built in proxy.New.
-var fallbackProviders = []string{
-	"openai", "anthropic", "groq", "gemini", "grok",
-	"mistral", "together", "nvidia", "cohere",
-}
+// ── Fallback status handler ───────────────────────────────────────────────────
 
-// fallbackStatusHandler reports the current Redis-tracked health (healthy/degraded)
-// of every known LLM provider, for the dashboard's self-healing status panel.
+// fallbackStatusHandler — GET /fallback/status
+// Returns current health state of all known providers from Redis.
 func fallbackStatusHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
-	mgr := fallback.New(rdb, logger, nil)
+	providers := []string{"openai", "anthropic", "groq", "gemini", "grok", "mistral", "together", "nvidia", "cohere"}
 	return func(w http.ResponseWriter, r *http.Request) {
-		status := mgr.HealthStatus(r.Context(), fallbackProviders)
+		status := make(map[string]string, len(providers))
+		for _, p := range providers {
+			degradedKey := fmt.Sprintf("ajah:fallback:degraded:%s", p)
+			exists, err := rdb.Exists(r.Context(), degradedKey).Result()
+			if err != nil {
+				status[p] = "unknown"
+				continue
+			}
+			if exists > 0 {
+				ttl, _ := rdb.TTL(r.Context(), degradedKey).Result()
+				status[p] = fmt.Sprintf("degraded (cooldown: %ds)", int(ttl.Seconds()))
+			} else {
+				failKey := fmt.Sprintf("ajah:fallback:failures:%s", p)
+				count, _ := rdb.Get(r.Context(), failKey).Int()
+				if count > 0 {
+					status[p] = fmt.Sprintf("healthy (failures: %d/3)", count)
+				} else {
+					status[p] = "healthy"
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"providers": status,
+			"providers":  status,
+			"checked_at": time.Now().UTC(),
 		})
 	}
 }
