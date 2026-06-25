@@ -119,6 +119,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	toolName := r.Header.Get("X-Tool-Name")
 	sourceContext := r.Header.Get("X-Source-Context")
 
+	// ── Agent circuit breaker check ───────────────────────────────────────────
+	// If this session has been tripped by a prior step limit or cost limit,
+	// reject immediately without touching the upstream provider.
+	if sessionID != "" && h.rdb != nil {
+		ck := "ajah:circuit:tripped:" + sessionID
+		if tripReason, err := h.rdb.Get(r.Context(), ck).Result(); err == nil && tripReason != "" {
+			log.Warn("request blocked by agent circuit breaker",
+				zap.String("session_id", sessionID),
+				zap.String("reason", tripReason),
+			)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Ajah-Circuit-Breaker", "tripped")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":      "agent circuit breaker tripped",
+				"reason":     tripReason,
+				"session_id": sessionID,
+			})
+			return
+		}
+	}
+
 	provider, providerURL, err := h.detectProvider(r.Header.Get("Authorization"))
 	if err != nil {
 		if errors.Is(err, errAzureNotConfigured) {
