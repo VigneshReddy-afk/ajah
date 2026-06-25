@@ -14,6 +14,7 @@ import (
 
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/db"
+	"github.com/ajah/core/internal/fallback"
 	"github.com/ajah/core/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
@@ -703,6 +704,26 @@ func anomaliesHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"anomalies": anomalies,
 			"total":     len(anomalies),
+		})
+	}
+}
+
+// fallbackProviders lists every provider the proxy handler can route to —
+// kept in sync with the providerURLs map built in proxy.New.
+var fallbackProviders = []string{
+	"openai", "anthropic", "groq", "gemini", "grok",
+	"mistral", "together", "nvidia", "cohere",
+}
+
+// fallbackStatusHandler reports the current Redis-tracked health (healthy/degraded)
+// of every known LLM provider, for the dashboard's self-healing status panel.
+func fallbackStatusHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
+	mgr := fallback.New(rdb, logger, nil)
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := mgr.HealthStatus(r.Context(), fallbackProviders)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"providers": status,
 		})
 	}
 }

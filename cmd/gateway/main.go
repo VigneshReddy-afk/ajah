@@ -21,7 +21,7 @@ import (
 	"github.com/ajah/core/internal/crossmodel"
 	"github.com/ajah/core/internal/db"
 	"github.com/ajah/core/internal/events"
-	"github.com/ajah/core/internal/fallback"
+	fallbackpkg "github.com/ajah/core/internal/fallback"
 	"github.com/ajah/core/internal/flagging"
 	"github.com/ajah/core/internal/masking"
 	"github.com/ajah/core/internal/metrics"
@@ -650,17 +650,25 @@ func run() error {
 	}
 	secDetector := security.New(secBlockThresh)
 
-	// 10c. Fallback provider manager ---------------------------------------------
-	// Enabled only when FALLBACK_PROVIDER_URL and FALLBACK_API_KEY are both set.
-	var fallbackCfg *fallback.ProviderConfig
-	if cfg.FallbackProviderURL != "" && cfg.FallbackAPIKey != "" {
-		fallbackCfg = &fallback.ProviderConfig{
+	// 10c. Fallback manager ----------------------------------------------------
+	// Self-healing: if FALLBACK_MODEL + FALLBACK_PROVIDER_URL + FALLBACK_API_KEY
+	// are all set, failed primary requests are retried against the fallback provider.
+	var fallbackMgr *fallbackpkg.Manager
+	if cfg.FallbackModel != "" && cfg.FallbackProviderURL != "" && cfg.FallbackAPIKey != "" {
+		fbCfg := &fallbackpkg.ProviderConfig{
 			Model:  cfg.FallbackModel,
 			URL:    cfg.FallbackProviderURL,
 			APIKey: cfg.FallbackAPIKey,
 		}
+		fallbackMgr = fallbackpkg.New(rdb, logger, fbCfg)
+		logger.Info("self-healing fallback enabled",
+			zap.String("fallback_model", cfg.FallbackModel),
+			zap.String("fallback_url", cfg.FallbackProviderURL),
+		)
+	} else {
+		fallbackMgr = fallbackpkg.New(rdb, logger, nil)
+		logger.Info("self-healing fallback disabled — set FALLBACK_MODEL, FALLBACK_PROVIDER_URL, FALLBACK_API_KEY to enable")
 	}
-	fallbackMgr := fallback.New(rdb, logger, fallbackCfg)
 
 	// 10d. Proxy handler -------------------------------------------------------
 	proxyHandler := proxy.New(cfg, emitter, logger, rdb, secDetector, fallbackMgr)
@@ -706,6 +714,9 @@ func run() error {
 	r.Post("/auth/logout", logoutHandler(dbStore, logger))
 	r.Get("/auth/me", meHandler(dbStore, logger))
 	r.Get("/auth/team", listTeamHandler(dbStore, logger))
+
+	// Fallback / self-healing status
+	r.Get("/fallback/status", fallbackStatusHandler(rdb, logger))
 
 	// 12. HTTP server ----------------------------------------------------------
 	srv := &http.Server{
