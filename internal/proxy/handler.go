@@ -17,6 +17,7 @@ import (
 
 	"github.com/ajah/core/internal/config"
 	"github.com/ajah/core/internal/events"
+	"github.com/ajah/core/internal/fallback"
 	"github.com/ajah/core/internal/security"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -50,18 +51,21 @@ type Handler struct {
 	client           *http.Client
 	providerURLs     map[string]string
 	securityDetector *security.Detector
+	fallbackMgr      *fallback.Manager
 }
 
 // New creates a Handler with the given configuration, emitter, logger, and optional Redis client.
 // Pass nil for rdb to disable response caching.
 // Pass nil for det to disable security scanning.
-func New(cfg *config.Config, em eventSink, logger *zap.Logger, rdb redisClient, det *security.Detector) *Handler {
+// Pass nil for mgr to disable self-healing fallback.
+func New(cfg *config.Config, em eventSink, logger *zap.Logger, rdb redisClient, det *security.Detector, mgr *fallback.Manager) *Handler {
 	return &Handler{
 		cfg:              cfg,
 		emitter:          em,
 		logger:           logger,
 		rdb:              rdb,
 		securityDetector: det,
+		fallbackMgr:      mgr,
 		client: &http.Client{
 			Timeout: time.Duration(cfg.ProviderTimeoutSeconds) * time.Second,
 		},
@@ -215,64 +219,156 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		zap.String("user_id", userID),
 	)
 
-	resp, err := h.client.Do(upstreamReq)
-	if err != nil {
-		if r.Context().Err() != nil {
-			log.Info("request cancelled by client", zap.Error(r.Context().Err()))
+	// ── Primary upstream call ─────────────────────────────────────────────
+	// Check if primary provider is already degraded — if so, skip straight to fallback.
+	usedFallback := false
+	actualModel := model
+	var respBody []byte
+	var statusCode int
+
+	primaryDegraded := h.fallbackMgr != nil && h.fallbackMgr.ShouldFallback(r.Context(), provider)
+
+	if primaryDegraded {
+		log.Warn("primary provider degraded — routing directly to fallback",
+			zap.String("provider", provider),
+		)
+	}
+
+	if !primaryDegraded {
+		resp, err := h.client.Do(upstreamReq)
+		if err != nil {
+			if r.Context().Err() != nil {
+				log.Info("request cancelled by client", zap.Error(r.Context().Err()))
+				return
+			}
+			log.Error("upstream request failed — attempting fallback", zap.Error(err))
+			if h.fallbackMgr != nil {
+				h.fallbackMgr.RecordFailure(r.Context(), provider)
+			}
+			// Try fallback on network error
+			if h.fallbackMgr != nil && h.fallbackMgr.IsEnabled() {
+				result, fbErr := h.fallbackMgr.Execute(r.Context(), body, r.URL.RequestURI())
+				if fbErr != nil {
+					log.Error("fallback also failed", zap.Error(fbErr))
+					http.Error(w, "upstream request failed and fallback unavailable", http.StatusBadGateway)
+					return
+				}
+				respBody = result.Body
+				statusCode = result.StatusCode
+				actualModel = result.UsedModel
+				usedFallback = true
+				log.Info("fallback succeeded",
+					zap.String("fallback_model", result.UsedModel),
+					zap.String("fallback_url", result.UsedURL),
+				)
+			} else {
+				http.Error(w, "upstream request failed", http.StatusBadGateway)
+				return
+			}
+		} else {
+			defer resp.Body.Close()
+			rb, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				log.Error("failed to read upstream response body", zap.Error(readErr))
+				http.Error(w, "failed to read upstream response", http.StatusBadGateway)
+				return
+			}
+			statusCode = resp.StatusCode
+
+			// On 5xx or 429 — record failure and try fallback
+			if fallback.IsDegradedStatusCode(statusCode) {
+				log.Warn("upstream returned degraded status code",
+					zap.Int("status", statusCode),
+					zap.String("provider", provider),
+				)
+				if h.fallbackMgr != nil {
+					h.fallbackMgr.RecordFailure(r.Context(), provider)
+				}
+				if h.fallbackMgr != nil && h.fallbackMgr.IsEnabled() {
+					result, fbErr := h.fallbackMgr.Execute(r.Context(), body, r.URL.RequestURI())
+					if fbErr == nil && !fallback.IsDegradedStatusCode(result.StatusCode) {
+						respBody = result.Body
+						statusCode = result.StatusCode
+						actualModel = result.UsedModel
+						usedFallback = true
+						log.Info("fallback succeeded after primary 5xx",
+							zap.String("fallback_model", result.UsedModel),
+						)
+					} else {
+						// Fallback also failed — return primary response
+						respBody = rb
+					}
+				} else {
+					respBody = rb
+				}
+			} else {
+				respBody = rb
+				// Primary succeeded — clear any failure counters
+				if h.fallbackMgr != nil {
+					h.fallbackMgr.RecordSuccess(r.Context(), provider)
+				}
+			}
+
+			if h.cfg.CacheEnabled && h.rdb != nil {
+				if statusCode == http.StatusOK {
+					ck := h.cacheKey(provider, body)
+					ttl := time.Duration(h.cfg.CacheTTLSeconds) * time.Second
+					_ = h.rdb.Set(r.Context(), ck, respBody, ttl)
+				}
+				w.Header().Set("X-Ajah-Cache", "miss")
+			}
+		}
+	} else {
+		// Primary degraded — go straight to fallback
+		if h.fallbackMgr != nil && h.fallbackMgr.IsEnabled() {
+			result, fbErr := h.fallbackMgr.Execute(r.Context(), body, r.URL.RequestURI())
+			if fbErr != nil {
+				log.Error("fallback failed for degraded provider", zap.Error(fbErr))
+				http.Error(w, "primary provider degraded and fallback unavailable", http.StatusBadGateway)
+				return
+			}
+			respBody = result.Body
+			statusCode = result.StatusCode
+			actualModel = result.UsedModel
+			usedFallback = true
+		} else {
+			http.Error(w, "primary provider degraded and no fallback configured", http.StatusBadGateway)
 			return
 		}
-		log.Error("upstream request failed", zap.Error(err))
-		http.Error(w, "upstream request failed", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Buffer the full response body so we can parse tokens before writing it out.
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error("failed to read upstream response body", zap.Error(err))
-		http.Error(w, "failed to read upstream response", http.StatusBadGateway)
-		return
-	}
-
-	if h.cfg.CacheEnabled && h.rdb != nil {
-		if resp.StatusCode == http.StatusOK {
-			ck := h.cacheKey(provider, body)
-			ttl := time.Duration(h.cfg.CacheTTLSeconds) * time.Second
-			_ = h.rdb.Set(r.Context(), ck, respBody, ttl)
-		}
-		w.Header().Set("X-Ajah-Cache", "miss")
 	}
 
 	inputTokens, outputTokens := extractTokens(respBody)
 	latencyMs := time.Since(start).Milliseconds()
 
-	copyHeaders(w.Header(), resp.Header)
+	if usedFallback {
+		w.Header().Set("X-Ajah-Fallback", "true")
+		w.Header().Set("X-Ajah-Fallback-Model", actualModel)
+	}
 	w.Header().Set("X-Ajah-Request-ID", requestID)
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(statusCode)
 	if _, err := w.Write(respBody); err != nil {
 		log.Warn("failed to write response body to client", zap.Error(err))
 	}
 
 	event := events.RequestEvent{
-		RequestID:     requestID,
-		UserID:        userID,
-		SessionID:     sessionID,
-		FeatureName:   featureName,
-		AgentStep:     stepName,
-		StepName:      stepName,
-		ParentStepID:  parentStepID,
-		ToolName:      toolName,
-		Provider:      provider,
-		Model:         model,
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		LatencyMs:     latencyMs,
-		StatusCode:    resp.StatusCode,
-		Prompt:        extractPrompt(body),
-		Response:      extractResponse(respBody),
-		SourceContext: sourceContext,
-		Timestamp:     start,
+		RequestID:       requestID,
+		UserID:          userID,
+		SessionID:       sessionID,
+		FeatureName:     featureName,
+		AgentStep:       stepName,
+		StepName:        stepName,
+		ParentStepID:    parentStepID,
+		ToolName:        toolName,
+		Provider:        provider,
+		Model:           actualModel,
+		InputTokens:     inputTokens,
+		OutputTokens:    outputTokens,
+		LatencyMs:       latencyMs,
+		StatusCode:      statusCode,
+		Prompt:          extractPrompt(body),
+		Response:        extractResponse(respBody),
+		SourceContext:   sourceContext,
+		Timestamp:       start,
 		InjectionRisk:   secScan.InjectionRisk,
 		JailbreakRisk:   secScan.JailbreakRisk,
 		ExfilRisk:       secScan.ExfilRisk,
@@ -287,7 +383,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		zap.String("user_id", userID),
 		zap.String("model", model),
 		zap.Int64("latency_ms", latencyMs),
-		zap.Int("status_code", resp.StatusCode),
+		zap.Int("status_code", statusCode),
 		zap.Int("input_tokens", inputTokens),
 		zap.Int("output_tokens", outputTokens),
 	)

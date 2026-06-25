@@ -57,7 +57,7 @@ func testConfig() *config.Config {
 // newHandler builds a Handler with a no-op logger to keep test output clean.
 func newHandler(t *testing.T, cfg *config.Config, em *mockEmitter) *Handler {
 	t.Helper()
-	return New(cfg, em, zap.NewNop(), nil, nil)
+	return New(cfg, em, zap.NewNop(), nil, nil, nil)
 }
 
 const llmResponse = `{"id":"chatcmpl-1","model":"gpt-4","usage":{"prompt_tokens":15,"completion_tokens":25}}`
