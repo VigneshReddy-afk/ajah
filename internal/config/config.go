@@ -44,6 +44,10 @@ type Config struct {
 	FallbackProviderURL  string // FALLBACK_PROVIDER_URL e.g. "https://api.openai.com/v1"
 	FallbackAPIKey       string // FALLBACK_API_KEY
 	SecurityBlockEnabled bool   // SECURITY_BLOCK_ENABLED
+	// AuthEnabled controls whether login/auth is enforced.
+	// Set to false (default) for self-hosted open-source use — no login required.
+	// Set to true for managed cloud deployments with multiple tenants.
+	AuthEnabled bool // AUTH_ENABLED (default: false)
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -128,6 +132,9 @@ func Load() (*Config, error) {
 	cfg.FallbackProviderURL = os.Getenv("FALLBACK_PROVIDER_URL")
 	cfg.FallbackAPIKey = os.Getenv("FALLBACK_API_KEY")
 	cfg.SecurityBlockEnabled = os.Getenv("SECURITY_BLOCK_ENABLED") == "true"
+	// AUTH_ENABLED defaults to false — self-hosted users get zero-friction access.
+	// Set AUTH_ENABLED=true for managed cloud deployments.
+	cfg.AuthEnabled = os.Getenv("AUTH_ENABLED") == "true"
 
 	return cfg, nil
 }
