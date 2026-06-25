@@ -33,6 +33,32 @@ type SessionSummary struct {
 	Traces []storage.TraceRecord
 }
 
+// CircuitBreakerLimits holds per-feature agent limits.
+// Zero values mean the limit is disabled.
+type CircuitBreakerLimits struct {
+	MaxStepsPerSession int
+	MaxCostPerSession  float64
+}
+
+// CircuitBreakerTrippedError is returned by AddTrace when a session limit is exceeded.
+type CircuitBreakerTrippedError struct {
+	Reason    string
+	SessionID string
+	Steps     int32
+	Cost      float64
+}
+
+func (e *CircuitBreakerTrippedError) Error() string {
+	return fmt.Sprintf("circuit breaker tripped for session %s: %s (steps=%d cost=%.6f)",
+		e.SessionID, e.Reason, e.Steps, e.Cost)
+}
+
+// IsCircuitBreakerTripped returns true if the error is a CircuitBreakerTrippedError.
+func IsCircuitBreakerTripped(err error) bool {
+	_, ok := err.(*CircuitBreakerTrippedError)
+	return ok
+}
+
 // Accumulator buffers per-session traces in Redis and flushes completed
 // sessions to ClickHouse.
 type Accumulator struct {
@@ -41,6 +67,9 @@ type Accumulator struct {
 	log            *zap.Logger
 	sessionTimeout time.Duration
 	reaperInterval time.Duration
+	// limitsFunc returns circuit breaker limits for a feature name.
+	// If nil, circuit breaking is disabled.
+	limitsFunc func(feature string) CircuitBreakerLimits
 }
 
 // New constructs an Accumulator with a 5-minute session idle timeout and a
@@ -65,15 +94,42 @@ func (a *Accumulator) SetReaperInterval(d time.Duration) {
 	a.reaperInterval = d
 }
 
-func metaKey(id string) string   { return "session:" + id + ":meta" }
-func tracesKey(id string) string { return "session:" + id + ":traces" }
+// SetLimitsFunc registers a function that returns circuit breaker limits for a feature.
+// Called on every AddTrace — must be fast (should read from an in-memory cache).
+func (a *Accumulator) SetLimitsFunc(fn func(feature string) CircuitBreakerLimits) {
+	a.limitsFunc = fn
+}
+
+func metaKey(id string) string    { return "session:" + id + ":meta" }
+func tracesKey(id string) string  { return "session:" + id + ":traces" }
+func circuitKey(id string) string { return "ajah:circuit:tripped:" + id }
 
 const sessionTTL = 24 * time.Hour
 
+// DeadStepResult holds the result of dead step analysis.
+type DeadStepResult struct {
+	IsDeadStep      bool
+	SimilarityScore float64
+	PrevStepName    string
+}
+
 // AddTrace appends trace to the Redis-backed session buffer and updates the
-// session metadata hash. Both Redis keys are refreshed to a 24 h TTL on every
-// call.
+// session metadata hash. Both Redis keys are refreshed to a 24h TTL on every call.
+//
+// Returns CircuitBreakerTrippedError if the session has exceeded configured
+// step or cost limits. The caller (gateway handler) should return 429 in this case.
 func (a *Accumulator) AddTrace(ctx context.Context, sessionID string, trace storage.TraceRecord) error {
+	// ── Circuit breaker pre-check ────────────────────────────────────────────
+	// If this session was already tripped, reject immediately without writing.
+	ck := circuitKey(sessionID)
+	if tripped, _ := a.rdb.Exists(ctx, ck).Result(); tripped > 0 {
+		reason, _ := a.rdb.Get(ctx, ck).Result()
+		return &CircuitBreakerTrippedError{
+			Reason:    reason,
+			SessionID: sessionID,
+		}
+	}
+
 	data, err := json.Marshal(trace)
 	if err != nil {
 		return fmt.Errorf("marshal trace: %w", err)
@@ -96,10 +152,149 @@ func (a *Accumulator) AddTrace(ctx context.Context, sessionID string, trace stor
 	pipe.Expire(ctx, tk, sessionTTL)
 	pipe.Expire(ctx, mk, sessionTTL)
 
-	if _, err = pipe.Exec(ctx); err != nil {
+	results, err := pipe.Exec(ctx)
+	if err != nil {
 		return fmt.Errorf("redis pipeline: %w", err)
 	}
+
+	// Read updated counters from pipeline results (indices 3=cost incr, 5=step incr)
+	var totalCost float64
+	var stepCount int32
+	if len(results) > 3 {
+		if cmd, ok := results[3].(*redis.FloatCmd); ok {
+			totalCost, _ = cmd.Result()
+		}
+	}
+	if len(results) > 5 {
+		if cmd, ok := results[5].(*redis.IntCmd); ok {
+			n, _ := cmd.Result()
+			stepCount = int32(n)
+		}
+	}
+
+	// ── Circuit breaker limit check ──────────────────────────────────────────
+	if a.limitsFunc != nil && trace.FeatureName != "" {
+		limits := a.limitsFunc(trace.FeatureName)
+		var tripReason string
+		if limits.MaxStepsPerSession > 0 && int(stepCount) >= limits.MaxStepsPerSession {
+			tripReason = fmt.Sprintf("step limit exceeded (%d/%d steps)", stepCount, limits.MaxStepsPerSession)
+		}
+		if limits.MaxCostPerSession > 0 && totalCost >= limits.MaxCostPerSession {
+			tripReason = fmt.Sprintf("cost limit exceeded ($%.6f/$%.6f)", totalCost, limits.MaxCostPerSession)
+		}
+		if tripReason != "" {
+			// Mark the session as tripped in Redis — TTL matches session idle timeout
+			a.rdb.Set(ctx, ck, tripReason, sessionTTL)
+			a.log.Warn("agent circuit breaker tripped",
+				zap.String("session_id", sessionID),
+				zap.String("feature", trace.FeatureName),
+				zap.String("reason", tripReason),
+				zap.Int32("steps", stepCount),
+				zap.Float64("cost", totalCost),
+			)
+			return &CircuitBreakerTrippedError{
+				Reason:    tripReason,
+				SessionID: sessionID,
+				Steps:     stepCount,
+				Cost:      totalCost,
+			}
+		}
+	}
+
 	return nil
+}
+
+// CheckDeadStep compares the current trace response against the previous step
+// in this session to detect redundant/looping agent steps.
+// Returns a DeadStepResult — call this after AddTrace succeeds.
+// A step is considered "dead" if it has identical or near-identical output to
+// a prior step (simple string overlap > 85%).
+func (a *Accumulator) CheckDeadStep(ctx context.Context, sessionID string, currentResponse string) DeadStepResult {
+	if currentResponse == "" || len(currentResponse) < 20 {
+		return DeadStepResult{}
+	}
+
+	tk := tracesKey(sessionID)
+	// Get the last 5 traces to compare against
+	rawTraces, err := a.rdb.LRange(ctx, tk, -6, -2).Result()
+	if err != nil || len(rawTraces) == 0 {
+		return DeadStepResult{}
+	}
+
+	// Compare against the most recent prior trace
+	last := rawTraces[len(rawTraces)-1]
+	var prevTrace storage.TraceRecord
+	if err := json.Unmarshal([]byte(last), &prevTrace); err != nil {
+		return DeadStepResult{}
+	}
+
+	if prevTrace.ResponseText == "" {
+		return DeadStepResult{}
+	}
+
+	similarity := stringSimilarity(currentResponse, prevTrace.ResponseText)
+	isDead := similarity > 0.85
+
+	if isDead {
+		a.log.Warn("dead step detected",
+			zap.String("session_id", sessionID),
+			zap.String("prev_step", prevTrace.StepName),
+			zap.Float64("similarity", similarity),
+		)
+	}
+
+	return DeadStepResult{
+		IsDeadStep:      isDead,
+		SimilarityScore: similarity,
+		PrevStepName:    prevTrace.StepName,
+	}
+}
+
+// stringSimilarity returns a simple overlap coefficient between two strings (0.0–1.0).
+// Uses character trigram overlap — fast, no external deps, good enough for dead step detection.
+func stringSimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+	if len(a) < 3 || len(b) < 3 {
+		return 0.0
+	}
+	// Truncate to first 500 chars for performance
+	if len(a) > 500 {
+		a = a[:500]
+	}
+	if len(b) > 500 {
+		b = b[:500]
+	}
+
+	trigramsA := buildTrigrams(a)
+	trigramsB := buildTrigrams(b)
+
+	if len(trigramsA) == 0 || len(trigramsB) == 0 {
+		return 0.0
+	}
+
+	intersection := 0
+	for k := range trigramsA {
+		if trigramsB[k] {
+			intersection++
+		}
+	}
+
+	smaller := len(trigramsA)
+	if len(trigramsB) < smaller {
+		smaller = len(trigramsB)
+	}
+	return float64(intersection) / float64(smaller)
+}
+
+func buildTrigrams(s string) map[string]bool {
+	runes := []rune(s)
+	out := make(map[string]bool, len(runes))
+	for i := 0; i+2 < len(runes); i++ {
+		out[string(runes[i:i+3])] = true
+	}
+	return out
 }
 
 // CloseSession reads the buffered session from Redis, writes it to ClickHouse,
