@@ -138,6 +138,17 @@ func run() error {
 	// 9. Session accumulator ---------------------------------------------------
 	acc := sessions.New(rdb, writer, logger)
 	acc.SetSessionTimeout(time.Duration(cfg.SessionTimeout) * time.Second)
+	// Wire circuit breaker limits from the in-memory settings cache
+	acc.SetLimitsFunc(func(feature string) sessions.CircuitBreakerLimits {
+		fs := dbStore.FeatureSettingFor(feature)
+		if fs == nil {
+			return sessions.CircuitBreakerLimits{}
+		}
+		return sessions.CircuitBreakerLimits{
+			MaxStepsPerSession: fs.MaxStepsPerSession,
+			MaxCostPerSession:  fs.MaxCostPerSession,
+		}
+	})
 
 	// 9b. Anomaly detector -----------------------------------------------------
 	anomalyDetector := anomaly.New(writer, logger)
@@ -581,10 +592,33 @@ func run() error {
 		// Step 5: session accumulation (best-effort; never breaks the pipeline)
 		if event.SessionID != "" {
 			if addErr := acc.AddTrace(ctx, event.SessionID, record); addErr != nil {
-				logger.Warn("session trace accumulation failed",
-					zap.String("session_id", event.SessionID),
-					zap.Error(addErr),
-				)
+				if sessions.IsCircuitBreakerTripped(addErr) {
+					logger.Warn("agent circuit breaker tripped — session blocked",
+						zap.String("session_id", event.SessionID),
+						zap.Error(addErr),
+					)
+					// Write a high-severity warning to Redis so dashboard shows it
+					cbWarning := warningItem{
+						RequestID:         record.RequestID,
+						SessionID:         event.SessionID,
+						FeatureName:       event.FeatureName,
+						RiskLevel:         "high",
+						HallucinationRisk: record.HallucinationRisk,
+						GroundingScore:    record.GroundingScore,
+						Reasons:           []string{"Circuit breaker tripped: " + addErr.Error()},
+						Timestamp:         event.Timestamp,
+						SecurityVerdict:   "circuit_breaker",
+					}
+					if warnData, err := json.Marshal(cbWarning); err == nil {
+						warnKey := fmt.Sprintf("warnings:%s", record.RequestID)
+						rdb.Set(ctx, warnKey, string(warnData), 24*time.Hour)
+					}
+				} else {
+					logger.Warn("session trace accumulation failed",
+						zap.String("session_id", event.SessionID),
+						zap.Error(addErr),
+					)
+				}
 			}
 		}
 
@@ -689,6 +723,8 @@ func run() error {
 	r.Post("/settings/users", postUserSettingsHandler(dbStore, logger))
 	r.Get("/sessions", sessionsHandler(writer, logger))
 	r.Get("/sessions/{sessionID}", sessionDetailHandler(writer, logger))
+	r.Get("/sessions/{sessionID}/circuit", sessionCircuitHandler(rdb, logger))
+	r.Delete("/sessions/{sessionID}/circuit", resetSessionCircuitHandler(rdb, logger))
 	r.Get("/warnings", warningsHandler(rdb, logger))
 	r.Get("/warnings/{requestID}", warningByRequestIDHandler(rdb, logger))
 	r.Get("/anomalies", anomaliesHandler(rdb, logger))

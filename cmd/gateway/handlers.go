@@ -621,6 +621,59 @@ func sessionDetailHandler(writer *storage.Writer, logger *zap.Logger) http.Handl
 	}
 }
 
+// circuitKeyFor mirrors the unexported key format in internal/sessions/session.go's
+// circuitKey() — kept in sync manually since that helper isn't exported.
+func circuitKeyFor(sessionID string) string {
+	return "ajah:circuit:tripped:" + sessionID
+}
+
+// sessionCircuitHandler — GET /sessions/{sessionID}/circuit
+// Reports whether the session's circuit breaker is currently tripped.
+func sessionCircuitHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "sessionID")
+		ck := circuitKeyFor(sessionID)
+
+		reason, err := rdb.Get(r.Context(), ck).Result()
+		w.Header().Set("Content-Type", "application/json")
+		if err == redis.Nil {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"session_id": sessionID,
+				"tripped":    false,
+			})
+			return
+		}
+		if err != nil {
+			logger.Error("read circuit breaker state", zap.String("session_id", sessionID), zap.Error(err))
+			http.Error(w, "failed to read circuit breaker state", http.StatusInternalServerError)
+			return
+		}
+
+		ttl, _ := rdb.TTL(r.Context(), ck).Result()
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"session_id":  sessionID,
+			"tripped":     true,
+			"reason":      reason,
+			"ttl_seconds": int(ttl.Seconds()),
+		})
+	}
+}
+
+// resetSessionCircuitHandler — DELETE /sessions/{sessionID}/circuit
+// Clears a tripped circuit breaker so the session can resume.
+func resetSessionCircuitHandler(rdb *redis.Client, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := chi.URLParam(r, "sessionID")
+		if err := rdb.Del(r.Context(), circuitKeyFor(sessionID)).Err(); err != nil {
+			logger.Error("reset circuit breaker", zap.String("session_id", sessionID), zap.Error(err))
+			http.Error(w, "failed to reset circuit breaker", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+}
+
 // flagResult is the JSON shape returned by GET /warnings/{requestID}.
 type flagResult struct {
 	RequestID string   `json:"request_id"`
