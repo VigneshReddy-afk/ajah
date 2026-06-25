@@ -12,6 +12,9 @@ services:
       SCORER_URL: http://scorer:8001
       LOG_LEVEL: debug
       ASYNC_WORKER_COUNT: "5"
+      FALLBACK_MODEL: ${FALLBACK_MODEL}
+      FALLBACK_PROVIDER_URL: ${FALLBACK_PROVIDER_URL}
+      FALLBACK_API_KEY: ${FALLBACK_API_KEY}
     dns:
       - 8.8.8.8
       - 8.8.4.4
