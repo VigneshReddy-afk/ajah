@@ -16,7 +16,7 @@
 **Website:** https://useajah.com
 **GitHub:** https://github.com/VigneshReddy-afk/ajah
 
-*Intercept · Attribute · Mask · Score · Alert*
+**Intercept · Attribute · Mask · Score · Alert**
 
 <br>
 
