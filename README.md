@@ -51,7 +51,7 @@
 
 **☁️ The Problem**
 
-Datadog AI, LangSmith, Helicone — all SaaS. Your prompts leave your network. Not an option for regulated industries.
+Data dog AI, LangSmith, Helicone — all SaaS. Your prompts leave your network. Not an option for regulated industries.
 
 </td>
 <td width="33%">
