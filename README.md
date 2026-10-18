@@ -1,3 +1,4 @@
+
 <div align="center">
 
 <br>
@@ -11,7 +12,7 @@
   ╚═╝  ╚═╝ ╚════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
 ```
 
-### Open-Source LLM Observability Gateway
+#### Open-Source LLM Observability Gateway
 
 **Website:** https://useajah.com
 **GitHub:** https://github.com/VigneshReddy-afk/ajah
